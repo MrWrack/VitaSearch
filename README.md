@@ -540,3 +540,6 @@ VitaShell error `0x8010113D` during VPK install was caused by the new
 `sce_sys/icon0.png` encoding. PS Vita homebrew LiveArea graphics need a
 compatible 8-bit indexed PNG. RC28 converts the VitaSearch 128x128 bubble icon
 to indexed palette PNG while retaining all RC27 proxy, JavaScript and input fixes.
+
+## RC29 install recovery
+Removes the newly added LiveArea icon from VPK packaging to restore the previously installable package layout. Runtime navigation, proxy, JavaScript and Spotify fixes remain.
