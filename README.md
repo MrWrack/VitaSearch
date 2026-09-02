@@ -514,3 +514,10 @@ pthread archive to be included so mbedTLS threading symbols resolve.
 - Removed the old instruction that required restarting VitaSearch after starting the proxy.
 - Network connect timeout reduced to 3 seconds and total request timeout to 6 seconds to reduce Settings freezes.
 - Main render loop is frame-paced at about 60 FPS to reduce menu CPU load/jitter.
+
+## VitaSearch v0.99 RC26 Spotify focus compile fix
+
+RC25 placed `spotify_control_selected` below `draw_spotify()`, causing the
+compiler error `spotify_control_selected undeclared`. RC26 moves that state
+variable beside the other global Spotify state, before the renderer. All RC25
+navigation and proxy-stability changes remain included.

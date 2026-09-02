@@ -25,6 +25,7 @@ static int cursor_x=SCREEN_W/2,cursor_y=SCREEN_H/2;
 static vita2d_texture *frame=NULL,*cover=NULL;
 static vita2d_pgf *font=NULL;
 static SpotifyState sp;
+static int spotify_control_selected=1; /* 0 previous, 1 play/pause, 2 next */
 static SpotifyTrack results[RESULT_MAX];
 static int result_count=0,result_selected=0,search_view=0;
 static int settings_selected=0,javascript_enabled=1;
@@ -252,7 +253,7 @@ static void draw_settings_appearance(void){
 
 static void draw_settings_about(void){
  draw_settings_header("About VitaSearch");
- draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC25");
+ draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC26");
  draw_text(44,142,RGBA8(242,245,244,255),0.68f,"Modern web rendering through Chromium proxy.");
  draw_text(44,180,RGBA8(242,245,244,255),0.68f,"PS Vita native controls + touch.");
  draw_text(44,218,RGBA8(242,245,244,255),0.68f,"Spotify Connect integration.");
@@ -466,7 +467,6 @@ static void keyboard_touch_dismiss(const SceTouchData *td,AppMode *mode,AppMode 
  keyboard_touch_down=down;
 }
 
-static int spotify_control_selected=1; /* 0 previous, 1 play/pause, 2 next */
 static int spotify_touch_down=0,spotify_seek_drag=0,spotify_volume_drag=0;
 static void spotify_touch(const SceTouchData*t){
  int down=t&&t->reportNum>0;
