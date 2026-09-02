@@ -41,10 +41,14 @@ jobs:
             git cmake make ninja-build pkg-config ca-certificates curl
           rm -rf /var/lib/apt/lists/*
 
-
       - name: Install Vita libraries
+        env:
+          VDPM_NONINTERACTIVE: "1"
         run: |
           vdpm refresh nightly || true
+
+          vdpm remove curl || true
+
           vdpm install \
             zlib \
             bzip2 \
@@ -53,7 +57,18 @@ jobs:
             freetype \
             libvita2d \
             mbedtls \
-            curl
+            zstd
+
+          vdpm install --force curl-mbedtls
+
+          echo "=== Installed curl variant ==="
+          vdpm list curl-mbedtls
+
+          echo "=== libcurl TLS check ==="
+          if arm-vita-eabi-nm "$VITASDK/arm-vita-eabi/lib/libcurl.a" | grep -E 'DES_set_|MD4_(Init|Update|Final)' >/dev/null; then
+            echo "ERROR: libcurl.a still uses OpenSSL"
+            exit 1
+          fi
 
       - name: Show toolchain versions
         run: |
