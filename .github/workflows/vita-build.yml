@@ -62,11 +62,18 @@ jobs:
           # continue, then verify the resulting libcurl archive directly.
           vdpm install curl-mbedtls <<< "y" || true
 
-          echo "curl-mbedtls replacement command returned; validating installed archive"
+          echo "curl-mbedtls replacement command returned"
+
+          # VDPM exits 141 after extraction in this container. Install the
+          # official curl-mbedtls release archive directly so the extracted
+          # package cannot be left half-committed/rolled back.
+          rm -f /tmp/curl-mbedtls.tar.xz
+          curl -fL --retry 3             https://github.com/vitasdk/packages/releases/download/master/curl-mbedtls.tar.xz             -o /tmp/curl-mbedtls.tar.xz
+          tar -xJf /tmp/curl-mbedtls.tar.xz -C "$VITASDK"
 
           test -f "$VITASDK/arm-vita-eabi/lib/libcurl.a"
 
-          echo "=== curl-mbedtls archive installed ==="
+          echo "=== direct curl-mbedtls archive installed ==="
           ls -lh "$VITASDK/arm-vita-eabi/lib/libcurl.a"
           echo "Using VitaSDK curl-mbedtls package; linker will validate its mbedTLS dependencies."
 
