@@ -428,3 +428,15 @@ GitHub Actions still returned exit code 141 immediately after installing
 
 It also removes the `nm | grep` diagnostic pipeline and writes symbols to a
 temporary file first, preventing any later SIGPIPE/pipefail exit 141.
+
+
+## VitaSearch v0.99 RC17 VDPM 141 workaround
+
+The Actions log shows VDPM completes both `removing curl...` and
+`installing curl-mbedtls...`, then VDPM itself returns 141. RC17 captures that
+specific return code and allows the workflow to continue. Any other non-zero
+VDPM result still fails.
+
+The following libcurl symbol check remains mandatory, so the build only
+continues if the installed archive is actually free of the old OpenSSL DES/MD4
+references.
