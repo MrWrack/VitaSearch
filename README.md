@@ -326,3 +326,15 @@ Fixed the next VitaSDK compiler errors:
 - Replaced the non-existent `spotify_cmd()` calls in the touch handler with the
   existing native helpers: `spotify_command()`, `spotify_seek()` and
   `spotify_volume()`.
+
+
+## VitaSearch v0.99 RC8 crypto/link fix
+
+Fixed the linker failure from VitaSDK where `libcurl.a` referenced OpenSSL crypto
+symbols such as `DES_set_odd_parity`, `DES_set_key_unchecked`, `DES_ecb_encrypt`,
+`MD4_Init`, `MD4_Update` and `MD4_Final`.
+
+Changes:
+- GitHub Actions installs the VitaSDK `openssl` package.
+- `ssl` and `crypto` are linked after `curl` in CMake so static libcurl can resolve
+  its OpenSSL dependencies.
