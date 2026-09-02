@@ -374,3 +374,15 @@ was inconsistent at link time. VitaSearch does not call OpenSSL directly; it
 only needs HTTPS through libcurl. RC11 therefore switches the Vita build to
 VitaSDK's `curl-mbedtls` package, whose declared dependencies are mbedTLS, zlib
 and zstd, and removes the OpenSSL/pthread link chain.
+
+
+## VitaSearch v0.99 RC12 force curl-mbedtls
+
+RC11's build log still showed `libcurl.a(md4.c.o)` and OpenSSL DES/MD4 symbols.
+That proves the archive used by the linker was still the OpenSSL-backed curl,
+not the requested mbedTLS variant.
+
+RC12 explicitly removes the preinstalled `curl` package, force-installs
+`curl-mbedtls`, and fails early if the resulting `libcurl.a` still contains
+OpenSSL DES/MD4 references. This makes the workflow verify the TLS backend
+before CMake starts linking VitaSearch.
