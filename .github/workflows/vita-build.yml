@@ -42,8 +42,6 @@ jobs:
           rm -rf /var/lib/apt/lists/*
 
       - name: Install Vita libraries
-        env:
-          VDPM_NONINTERACTIVE: "1"
         run: |
           vdpm refresh nightly || true
 
@@ -59,7 +57,7 @@ jobs:
             mbedtls \
             zstd
 
-          vdpm install --force curl-mbedtls
+          yes | vdpm install curl-mbedtls
 
           echo "=== Installed curl variant ==="
           vdpm list curl-mbedtls
