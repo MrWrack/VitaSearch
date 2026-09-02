@@ -299,3 +299,11 @@ Fixed VitaSDK CMake configure error:
 `Invalid version '00.993' change to format ##.##`
 
 The VPK metadata version is now `00.99`, while the project/package prerelease remains RC4.
+
+
+## VitaSearch v0.99 RC5 source fix
+
+Removed a duplicated/corrupted fragment after `open_target()` that caused the C
+parser to lose sync and report misleading errors later around `remote_scroll`.
+
+`open_target()` now ends cleanly before `remote_simple()`.
