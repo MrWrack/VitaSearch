@@ -504,3 +504,13 @@ linker errors come from `libmbedcrypto.a(threading.c.o)` and reference
 
 RC24 links VitaSDK pthread inside the same static-library group and forces the
 pthread archive to be included so mbedTLS threading symbols resolve.
+
+## VitaSearch v0.99 RC25 navigation + proxy stability
+
+- Spotify disconnected screen: X connects, O returns, SELECT opens Settings.
+- Spotify player: D-pad Left/Right moves focus Previous -> Play/Pause -> Next; X activates.
+- L/R still performs Previous/Next directly.
+- Offline browser now retries the proxy automatically and X/Triangle can retry immediately.
+- Removed the old instruction that required restarting VitaSearch after starting the proxy.
+- Network connect timeout reduced to 3 seconds and total request timeout to 6 seconds to reduce Settings freezes.
+- Main render loop is frame-paced at about 60 FPS to reduce menu CPU load/jitter.

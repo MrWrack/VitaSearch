@@ -44,8 +44,8 @@ static int perform(CURL *c, NetBuffer *out) {
   out->size = 0;
   curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, write_cb);
   curl_easy_setopt(c, CURLOPT_WRITEDATA, out);
-  curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 8L);
-  curl_easy_setopt(c, CURLOPT_TIMEOUT, 20L);
+  curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 3L);
+  curl_easy_setopt(c, CURLOPT_TIMEOUT, 6L);
   curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 1L);
   curl_easy_setopt(c, CURLOPT_SSL_VERIFYPEER, 1L);
   curl_easy_setopt(c, CURLOPT_SSL_VERIFYHOST, 2L);
