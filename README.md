@@ -386,3 +386,11 @@ RC12 explicitly removes the preinstalled `curl` package, force-installs
 `curl-mbedtls`, and fails early if the resulting `libcurl.a` still contains
 OpenSSL DES/MD4 references. This makes the workflow verify the TLS backend
 before CMake starts linking VitaSearch.
+
+
+## VitaSearch v0.99 RC13 workflow-ready
+
+The GitHub Actions workflow is included already fixed:
+- removes the old `curl` Vita package
+- installs `curl-mbedtls`
+- checks `libcurl.a` for old OpenSSL DES/MD4 references before building
