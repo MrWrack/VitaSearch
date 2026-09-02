@@ -1,6 +1,7 @@
 #include <psp2/ctrl.h>
 #include <psp2/touch.h>
 #include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/threadmgr.h>
 #include <psp2/sysmodule.h>
 #include <vita2d.h>
 #include <stdio.h>
@@ -45,6 +46,12 @@ static VitaSpotifyStatus spotify_status;
 static int spotify_status_rc=-1;
 
 static unsigned int net_last_check=0;
+
+static volatile int reconnect_busy=0;
+static volatile int reconnect_done=0;
+static volatile int reconnect_result=-1;
+static unsigned char *reconnect_frame_data=NULL;
+static size_t reconnect_frame_size=0;
 
 static int browser_touch_down=0;
 static int search_keyboard_open=0;
@@ -188,7 +195,7 @@ static void draw_settings_default_search(void){
 static void draw_settings_network(void){
  draw_settings_header("Network");
  vita2d_draw_rectangle(34,72,892,58,RGBA8(35,235,110,settings_selected==0?255:110));
- draw_text(58,108,RGBA8(5,25,12,255),0.72f,"RECONNECT / REFRESH");
+ draw_text(58,108,RGBA8(5,25,12,255),0.72f,reconnect_busy?"CONNECTING...":"RECONNECT / REFRESH");
  draw_text(742,108,RGBA8(5,25,12,255),0.66f,"X / TAP");
  draw_settings_row(144,"Vita / Proxy",0,net_proxy_ok?"ONLINE":"OFFLINE");
  draw_settings_row(192,"Internet",0,net_internet_ok?"ONLINE":"OFFLINE");
@@ -265,7 +272,7 @@ static void draw_settings_appearance(void){
 
 static void draw_settings_about(void){
  draw_settings_header("About VitaSearch");
- draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC31");
+ draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC33");
  draw_text(44,142,RGBA8(242,245,244,255),0.68f,"Modern web rendering through Chromium proxy.");
  draw_text(44,180,RGBA8(242,245,244,255),0.68f,"PS Vita native controls + touch.");
  draw_text(44,218,RGBA8(242,245,244,255),0.68f,"Spotify Connect integration.");
@@ -288,30 +295,114 @@ static void draw_settings(void){
 }
 
 
+static void open_settings_root(void){
+ mode=MODE_SETTINGS;
+ settings_page=0;
+ settings_selected=0;
+ settings_status[0]=0;
+}
+
+static int reconnect_worker(SceSize args, void *argp){
+ (void)args;(void)argp;
+ reconnect_result=-1;
+ reconnect_frame_data=NULL;
+ reconnect_frame_size=0;
+
+ if(network_probe()!=0 || !net_proxy_ok){
+   reconnect_result=-2;
+   reconnect_done=1;
+   reconnect_busy=0;
+   return 0;
+ }
+
+ if(create_session()!=0){
+   reconnect_result=-3;
+   reconnect_done=1;
+   reconnect_busy=0;
+   return 0;
+ }
+
+ if(javascript_pending){
+   if(settings_set_javascript(proxy,session,javascript_enabled)==0)
+     javascript_pending=0;
+ }
+
+ char u[512];
+ snprintf(u,sizeof(u),"%s/frame?session=%s",proxy,session);
+ NetBuffer b;
+ if(net_get(u,&b)!=0 || !b.data || b.size==0){
+   net_buffer_free(&b);
+   reconnect_result=-4;
+   reconnect_done=1;
+   reconnect_busy=0;
+   return 0;
+ }
+
+ reconnect_frame_data=(unsigned char*)b.data;
+ reconnect_frame_size=b.size;
+ b.data=NULL;b.size=0;
+ reconnect_result=0;
+ reconnect_done=1;
+ reconnect_busy=0;
+ return 0;
+}
+
 static void reconnect_refresh(void){
  if(!proxy_enabled){
    snprintf(settings_status,sizeof(settings_status),"Proxy is OFF");
-   online=0; net_proxy_ok=0; net_internet_ok=0;
+   online=0;net_proxy_ok=0;net_internet_ok=0;
    return;
  }
- snprintf(settings_status,sizeof(settings_status),"Checking proxy...");
- network_probe();
- if(!net_proxy_ok){
+ if(reconnect_busy){
+   snprintf(settings_status,sizeof(settings_status),"Reconnect already running...");
+   return;
+ }
+ reconnect_done=0;
+ reconnect_result=-1;
+ reconnect_busy=1;
+ snprintf(settings_status,sizeof(settings_status),"Checking proxy in background...");
+ SceUID th=sceKernelCreateThread("VitaSearchReconnect",reconnect_worker,0x10000100,0x10000,0,0,NULL);
+ if(th<0){
+   reconnect_busy=0;
+   snprintf(settings_status,sizeof(settings_status),"Could not start reconnect worker");
+   return;
+ }
+ if(sceKernelStartThread(th,0,NULL)<0){
+   reconnect_busy=0;
+   sceKernelDeleteThread(th);
+   snprintf(settings_status,sizeof(settings_status),"Could not start reconnect worker");
+ }
+}
+
+static void finish_reconnect_if_ready(void){
+ if(!reconnect_done)return;
+ reconnect_done=0;
+
+ if(reconnect_result==0 && reconnect_frame_data && reconnect_frame_size){
+   vita2d_texture *t=vita2d_load_PNG_buffer(reconnect_frame_data);
+   free(reconnect_frame_data);
+   reconnect_frame_data=NULL;
+   reconnect_frame_size=0;
+   if(t){
+     if(frame)vita2d_free_texture(frame);
+     frame=t;
+     online=1;
+     snprintf(settings_status,sizeof(settings_status),
+              net_internet_ok?"Proxy + Internet ONLINE":"Proxy ONLINE, Internet unavailable");
+     mode=MODE_WEB;
+     return;
+   }
    online=0;
-   snprintf(settings_status,sizeof(settings_status),"Proxy unreachable - check PC IP/port/firewall");
+   snprintf(settings_status,sizeof(settings_status),"Frame decode failed");
    return;
  }
- online=create_session()==0;
- if(!online){
-   snprintf(settings_status,sizeof(settings_status),"Proxy reachable, browser session failed");
-   return;
- }
- if(javascript_pending&&settings_set_javascript(proxy,session,javascript_enabled)==0)
-   javascript_pending=0;
- refresh_frame();
- refresh_spotify_status();
- snprintf(settings_status,sizeof(settings_status),
-          net_internet_ok?"Proxy + Internet ONLINE":"Proxy ONLINE, Internet unavailable");
+
+ online=0;
+ if(reconnect_frame_data){free(reconnect_frame_data);reconnect_frame_data=NULL;reconnect_frame_size=0;}
+ if(reconnect_result==-2)snprintf(settings_status,sizeof(settings_status),"Proxy unreachable - check PC IP/port/firewall");
+ else if(reconnect_result==-3)snprintf(settings_status,sizeof(settings_status),"Proxy reachable, browser session failed");
+ else if(reconnect_result==-4)snprintf(settings_status,sizeof(settings_status),"Proxy/session OK, frame request failed");
+ else snprintf(settings_status,sizeof(settings_status),"Reconnect failed");
 }
 
 static void settings_action(void){
@@ -587,9 +678,21 @@ int main(void){sceSysmoduleLoadModule(SCE_SYSMODULE_NET);sceSysmoduleLoadModule(
  if(online){network_probe();refresh_spotify_status();}
  snprintf(browser_tabs[0].title,sizeof(browser_tabs[0].title),"Google");if(online){open_target("google.com");refresh_frame();spotify_refresh();}
  AppMode mode=MODE_WEB,return_mode=MODE_WEB;unsigned int old=0;int counter=0,keysel=0;char input[INPUT_MAX+1]="";
- for(;;){SceCtrlData pad;sceCtrlPeekBufferPositiveExt(0,&pad,1);unsigned int pressed=pad.buttons&~old;old=pad.buttons;if((pad.buttons&SCE_CTRL_START)&&(pad.buttons&SCE_CTRL_SELECT))break;
+ for(;;){finish_reconnect_if_ready();SceCtrlData pad;sceCtrlPeekBufferPositiveExt(0,&pad,1);unsigned int pressed=pad.buttons&~old;old=pad.buttons;if((pad.buttons&SCE_CTRL_START)&&(pad.buttons&SCE_CTRL_SELECT))break;
   if(mode==MODE_KEYBOARD){int row=keysel/KEY_COLS,col=keysel%KEY_COLS;if(pressed&SCE_CTRL_LEFT)col=(col+9)%10;if(pressed&SCE_CTRL_RIGHT)col=(col+1)%10;if(pressed&SCE_CTRL_UP)row=row>0?row-1:5;if(pressed&SCE_CTRL_DOWN)row=row<5?row+1:0;keysel=row*10+col;if(keysel>=KEY_COUNT)keysel=KEY_COUNT-1;if(pressed&SCE_CTRL_CIRCLE){if(return_mode==MODE_WEB)close_search_keyboard(&mode,return_mode,input);else mode=return_mode;}else if(pressed&SCE_CTRL_TRIANGLE){if(return_mode==MODE_WEB)submit_search_keyboard(&mode,return_mode,input);else{if(input[0]){result_count=spotify_search(proxy,input,results,RESULT_MAX);result_selected=0;search_view=1;spotify_refresh();}mode=return_mode;}}else if(pressed&SCE_CTRL_CROSS){if(keysel==KEY_COUNT-1){if(return_mode==MODE_WEB)submit_search_keyboard(&mode,return_mode,input);else{if(input[0]){result_count=spotify_search(proxy,input,results,RESULT_MAX);result_selected=0;search_view=1;spotify_refresh();}mode=return_mode;}}else if(!strcmp(keys[keysel],"<")){size_t n=strlen(input);if(n)input[n-1]=0;}else append_input(input,keys[keysel]);}if(mode==MODE_KEYBOARD&&return_mode==MODE_WEB){SceTouchData ktd;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&ktd,1);keyboard_touch_dismiss(&ktd,&mode,return_mode,input);}}
-  else if(mode==MODE_WEB){if(pressed&SCE_CTRL_START){mode=MODE_SPOTIFY;if(online)spotify_refresh();}else if(pressed&SCE_CTRL_SELECT){mode=MODE_SETTINGS;settings_page=0;settings_selected=0;settings_status[0]=0;}else if(!online){if(proxy_enabled&&(pressed&SCE_CTRL_CROSS||pressed&SCE_CTRL_TRIANGLE)){online=create_session()==0;if(online){if(javascript_pending&&settings_set_javascript(proxy,session,javascript_enabled)==0)javascript_pending=0;network_probe();refresh_frame();spotify_refresh();refresh_spotify_status();}}if(proxy_enabled&&++counter>=60){online=create_session()==0;if(online){if(javascript_pending&&settings_set_javascript(proxy,session,javascript_enabled)==0)javascript_pending=0;network_probe();refresh_frame();spotify_refresh();refresh_spotify_status();}counter=0;}}else if(online){int ax=(int)pad.lx-128,ay=(int)pad.ly-128;if(ax>20||ax<-20)cursor_x+=ax/22;if(ay>20||ay<-20)cursor_y+=ay/22;if(cursor_x<0)cursor_x=0;if(cursor_x>959)cursor_x=959;if(cursor_y<82)cursor_y=82;if(cursor_y>467)cursor_y=467;if(pressed&SCE_CTRL_UP){remote_scroll(0,-360);refresh_frame();}if(pressed&SCE_CTRL_DOWN){remote_scroll(0,360);refresh_frame();}if(pressed&SCE_CTRL_LEFT&&browser_tab_count>1){int ni=browser_tab_active-1;if(ni<0)ni=browser_tab_count-1;tab_select(ni);}if(pressed&SCE_CTRL_RIGHT&&browser_tab_count>1){int ni=(browser_tab_active+1)%browser_tab_count;tab_select(ni);}if(pressed&SCE_CTRL_CROSS){remote_click(cursor_x,cursor_y);refresh_frame();}if(pressed&SCE_CTRL_LTRIGGER){remote_simple("/back");refresh_frame();}if(pressed&SCE_CTRL_RTRIGGER){remote_simple("/forward");refresh_frame();}if(pressed&SCE_CTRL_SQUARE){open_search_keyboard(&mode,&return_mode,input,&keysel);}if(pressed&SCE_CTRL_TRIANGLE){if(search_text[0]){open_target(search_text);refresh_frame();}else open_search_keyboard(&mode,&return_mode,input,&keysel);}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);browser_touch(&td,&mode,&return_mode,input,&keysel);if(++counter>=120){refresh_frame();spotify_refresh();network_probe();refresh_spotify_status();if(!net_proxy_ok)online=0;counter=0;}}}
+  else if(mode==MODE_WEB){if(pressed&SCE_CTRL_START){mode=MODE_SPOTIFY;if(online)spotify_refresh();}else if(pressed&SCE_CTRL_SELECT){mode=MODE_SETTINGS;settings_page=0;settings_selected=0;settings_status[0]=0;}else if(!online){
+ if(pressed&SCE_CTRL_SELECT){open_settings_root();}
+ else if(pressed&SCE_CTRL_CROSS||pressed&SCE_CTRL_TRIANGLE){reconnect_refresh();}
+ SceTouchData otd;memset(&otd,0,sizeof(otd));sceTouchPeek(SCE_TOUCH_PORT_FRONT,&otd,1);
+ static int offline_touch_down=0;int offline_touch_now=otd.reportNum>0;
+ if(offline_touch_now&&!offline_touch_down){
+   int tx=otd.report[0].x*960/1919;int ty=otd.report[0].y*544/1087;
+   if(tx>=250&&tx<=710&&ty>=245&&ty<=325)reconnect_refresh();
+   else if(tx>=250&&tx<=710&&ty>=345&&ty<=420)open_settings_root();
+ }
+ offline_touch_down=offline_touch_now;
+ if(proxy_enabled&&!reconnect_busy&&++counter>=600){reconnect_refresh();counter=0;}
+}else if(online){int ax=(int)pad.lx-128,ay=(int)pad.ly-128;if(ax>20||ax<-20)cursor_x+=ax/22;if(ay>20||ay<-20)cursor_y+=ay/22;if(cursor_x<0)cursor_x=0;if(cursor_x>959)cursor_x=959;if(cursor_y<82)cursor_y=82;if(cursor_y>467)cursor_y=467;if(pressed&SCE_CTRL_UP){remote_scroll(0,-360);refresh_frame();}if(pressed&SCE_CTRL_DOWN){remote_scroll(0,360);refresh_frame();}if(pressed&SCE_CTRL_LEFT&&browser_tab_count>1){int ni=browser_tab_active-1;if(ni<0)ni=browser_tab_count-1;tab_select(ni);}if(pressed&SCE_CTRL_RIGHT&&browser_tab_count>1){int ni=(browser_tab_active+1)%browser_tab_count;tab_select(ni);}if(pressed&SCE_CTRL_CROSS){remote_click(cursor_x,cursor_y);refresh_frame();}if(pressed&SCE_CTRL_LTRIGGER){remote_simple("/back");refresh_frame();}if(pressed&SCE_CTRL_RTRIGGER){remote_simple("/forward");refresh_frame();}if(pressed&SCE_CTRL_SQUARE){open_search_keyboard(&mode,&return_mode,input,&keysel);}if(pressed&SCE_CTRL_TRIANGLE){if(search_text[0]){open_target(search_text);refresh_frame();}else open_search_keyboard(&mode,&return_mode,input,&keysel);}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);browser_touch(&td,&mode,&return_mode,input,&keysel);if(++counter>=120){refresh_frame();spotify_refresh();network_probe();refresh_spotify_status();if(!net_proxy_ok)online=0;counter=0;}}}
   else if(mode==MODE_SETTINGS){if(pressed&SCE_CTRL_CIRCLE){if(settings_page){settings_page=0;settings_selected=0;settings_status[0]=0;}else mode=MODE_WEB;}else{int scount=settings_page==0?SETTINGS_CATEGORY_COUNT:(settings_page==5?CLEAR_COUNT:(settings_page==2?2:1));if(pressed&SCE_CTRL_UP&&settings_selected>0)settings_selected--;if(pressed&SCE_CTRL_DOWN&&settings_selected+1<scount)settings_selected++;if(pressed&SCE_CTRL_CROSS)settings_action();if((pressed&SCE_CTRL_TRIANGLE)&&settings_page==3)reconnect_refresh();if((pressed&SCE_CTRL_LEFT||pressed&SCE_CTRL_RIGHT)&&(settings_page==1||settings_page==2||settings_page==6))settings_action();
 SceTouchData std;memset(&std,0,sizeof(std));sceTouchPeek(SCE_TOUCH_PORT_FRONT,&std,1);
 static int settings_touch_down=0;
@@ -601,5 +704,12 @@ if(settings_page==3&&touch_now&&!settings_touch_down){
 }
 settings_touch_down=touch_now;}}
   else {if(pressed&SCE_CTRL_START){mode=MODE_WEB;}else if(!sp.connected){if(pressed&SCE_CTRL_CIRCLE){mode=MODE_WEB;}else if(pressed&SCE_CTRL_SELECT){mode=MODE_SETTINGS;settings_page=0;settings_selected=0;}else if(pressed&SCE_CTRL_CROSS){if(spotify_login_web()==0)mode=MODE_WEB;}}else if(search_view){if(pressed&SCE_CTRL_UP&&result_selected>0)result_selected--;if(pressed&SCE_CTRL_DOWN&&result_selected+1<result_count)result_selected++;if(pressed&SCE_CTRL_CROSS&&result_count){spotify_play_uri(proxy,results[result_selected].uri);search_view=0;spotify_refresh();}if(pressed&SCE_CTRL_SELECT&&result_count)spotify_queue_uri(proxy,results[result_selected].uri);if(pressed&SCE_CTRL_CIRCLE)search_view=0;if(pressed&SCE_CTRL_TRIANGLE){return_mode=MODE_SPOTIFY;mode=MODE_KEYBOARD;input[0]=0;keysel=0;}}else{if(pressed&SCE_CTRL_LEFT){spotify_control_selected=(spotify_control_selected+2)%3;}if(pressed&SCE_CTRL_RIGHT){spotify_control_selected=(spotify_control_selected+1)%3;}if(pressed&SCE_CTRL_CROSS){if(spotify_control_selected==0)spotify_command(proxy,"previous");else if(spotify_control_selected==1)spotify_command(proxy,sp.playing?"pause":"play");else spotify_command(proxy,"next");spotify_refresh();}if(pressed&SCE_CTRL_LTRIGGER){spotify_command(proxy,"previous");spotify_refresh();}if(pressed&SCE_CTRL_RTRIGGER){spotify_command(proxy,"next");spotify_refresh();}if(pressed&SCE_CTRL_UP){spotify_volume(proxy,sp.volume+5);spotify_refresh();}if(pressed&SCE_CTRL_DOWN){spotify_volume(proxy,sp.volume-5);spotify_refresh();}if(pressed&SCE_CTRL_SQUARE)spotify_refresh();if(pressed&SCE_CTRL_TRIANGLE){return_mode=MODE_SPOTIFY;mode=MODE_KEYBOARD;input[0]=0;keysel=0;}if(pressed&SCE_CTRL_SELECT){if(spotify_login_web()==0)mode=MODE_WEB;}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);spotify_touch(&td);if(++counter>=180){spotify_refresh();counter=0;}}}
-  vita2d_start_drawing();vita2d_clear_screen();if(mode==MODE_KEYBOARD){keyboard_draw(input,keysel,return_mode==MODE_SPOTIFY?"Spotify search":"Address / Google search");}else if(mode==MODE_SPOTIFY){draw_spotify();if(sp.connected)draw_spotify_touch_controls();}else if(mode==MODE_SETTINGS){draw_settings();}else if(frame){vita2d_draw_texture(frame,0,0);draw_browser_chrome();vita2d_draw_rectangle(cursor_x-6,cursor_y-1,13,3,RGBA8(20,255,120,255));vita2d_draw_rectangle(cursor_x-1,cursor_y-6,3,13,RGBA8(20,255,120,255));draw_mini_player();}else{draw_text(70,225,RGBA8(240,240,240,255),1.0f,proxy_enabled?"Proxy offline. Start proxy - X retries now.":"Proxy is OFF. SELECT -> Proxy / HTTPS to enable.");}vita2d_end_drawing();vita2d_swap_buffers();sceKernelDelayThread(16667);}
+  vita2d_start_drawing();vita2d_clear_screen();if(mode==MODE_KEYBOARD){keyboard_draw(input,keysel,return_mode==MODE_SPOTIFY?"Spotify search":"Address / Google search");}else if(mode==MODE_SPOTIFY){draw_spotify();if(sp.connected)draw_spotify_touch_controls();}else if(mode==MODE_SETTINGS){draw_settings();}else if(frame){vita2d_draw_texture(frame,0,0);draw_browser_chrome();vita2d_draw_rectangle(cursor_x-6,cursor_y-1,13,3,RGBA8(20,255,120,255));vita2d_draw_rectangle(cursor_x-1,cursor_y-6,3,13,RGBA8(20,255,120,255));draw_mini_player();}else{
+ draw_text(245,205,RGBA8(242,245,244,255),0.80f,reconnect_busy?"Connecting...":(proxy_enabled?"Proxy offline":"Proxy is OFF"));
+ vita2d_draw_rectangle(250,245,460,80,RGBA8(35,235,110,255));
+ draw_text(330,295,RGBA8(5,25,12,255),0.78f,reconnect_busy?"CONNECTING...":"RECONNECT / REFRESH");
+ vita2d_draw_rectangle(250,345,460,72,RGBA8(38,48,44,255));
+ draw_text(375,389,RGBA8(242,245,244,255),0.72f,"OPEN SETTINGS");
+ draw_text(250,454,RGBA8(165,180,175,255),0.60f,"X/Triangle: reconnect   SELECT: settings   Touch works");
+}vita2d_end_drawing();vita2d_swap_buffers();sceKernelDelayThread(16667);}
  if(cover)vita2d_free_texture(cover);if(frame)vita2d_free_texture(frame);if(font)vita2d_free_pgf(font);net_term();vita2d_fini();sceKernelExitProcess(0);return 0;}

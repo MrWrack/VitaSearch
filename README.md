@@ -556,3 +556,14 @@ Network has a selectable Reconnect/Refresh row. X uses extended Vita controller 
 - Network settings and offline recovery now share the same reconnect function.
 - Clear result text distinguishes proxy unreachable, browser-session failure and internet unavailable.
 - RC30/RC29 install-safe VPK layout is retained.
+
+## RC32 Offline screen input fix
+The black offline screen now has real Reconnect/Refresh and Open Settings buttons. X/Triangle reconnect, SELECT opens Settings, and touch works. Successful reconnect returns to the web view. Auto retry is reduced to about every 5 seconds.
+
+## RC33 async reconnect / no-freeze fix
+
+Reconnect no longer performs curl health/session/frame requests on the Vita UI thread.
+X, Triangle or touch starts a Vita kernel worker thread. The UI remains responsive and
+shows CONNECTING... while the worker checks `/health`, creates the browser session and
+downloads the first PNG frame. PNG texture creation is handed back to the main UI thread.
+Automatic retries also use the same async path and run less often.
