@@ -365,3 +365,12 @@ reaches OpenSSL internal stack symbols such as `sk_num` and `sk_value`.
 Static `curl`, `ssl`, `crypto` and pthread dependencies can be cyclic. They are
 now wrapped in GNU ld's `--start-group/--end-group`, which makes the linker
 rescan the archives until their mutual references are resolved.
+
+
+## VitaSearch v0.99 RC11 TLS backend fix
+
+RC10 still failed on `sk_num` / `sk_value`, showing that the OpenSSL archive set
+was inconsistent at link time. VitaSearch does not call OpenSSL directly; it
+only needs HTTPS through libcurl. RC11 therefore switches the Vita build to
+VitaSDK's `curl-mbedtls` package, whose declared dependencies are mbedTLS, zlib
+and zstd, and removes the OpenSSL/pthread link chain.
