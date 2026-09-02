@@ -51,6 +51,7 @@ static unsigned int net_last_check=0;
 static volatile int reconnect_busy=0;
 static volatile int reconnect_done=0;
 static volatile int reconnect_result=-1;
+static volatile int reconnect_stage=0; /* 0 idle,1 health,2 fallback,3 session,4 frame */
 static unsigned char *reconnect_frame_data=NULL;
 static size_t reconnect_frame_size=0;
 
@@ -196,7 +197,7 @@ static void draw_settings_default_search(void){
 static void draw_settings_network(void){
  draw_settings_header("Network");
  vita2d_draw_rectangle(34,72,892,58,RGBA8(35,235,110,settings_selected==0?255:110));
- draw_text(58,108,RGBA8(5,25,12,255),0.72f,reconnect_busy?"CONNECTING...":"RECONNECT / REFRESH");
+ draw_text(58,108,RGBA8(5,25,12,255),0.72f,reconnect_busy?reconnect_stage_text():"RECONNECT / REFRESH");
  draw_text(742,108,RGBA8(5,25,12,255),0.66f,"X / TAP");
  draw_settings_row(144,"Vita / Proxy",0,net_proxy_ok?"ONLINE":"OFFLINE");
  draw_settings_row(192,"Internet",0,net_internet_ok?"ONLINE":"OFFLINE");
@@ -273,7 +274,7 @@ static void draw_settings_appearance(void){
 
 static void draw_settings_about(void){
  draw_settings_header("About VitaSearch");
- draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC34");
+ draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC35");
  draw_text(44,142,RGBA8(242,245,244,255),0.68f,"Modern web rendering through Chromium proxy.");
  draw_text(44,180,RGBA8(242,245,244,255),0.68f,"PS Vita native controls + touch.");
  draw_text(44,218,RGBA8(242,245,244,255),0.68f,"Spotify Connect integration.");
@@ -303,23 +304,61 @@ static void open_settings_root(void){
  settings_status[0]=0;
 }
 
+static int make_http_8080_fallback(const char *src,char *dst,size_t cap){
+ if(!src||strncmp(src,"https://",8)!=0)return -1;
+ const char *host=src+8;
+ const char *colon=strrchr(host,':');
+ if(!colon)return -1;
+ if(strcmp(colon,":8443")!=0)return -1;
+ size_t hostlen=(size_t)(colon-host);
+ if(hostlen+16>=cap)return -1;
+ snprintf(dst,cap,"http://%.*s:8080",(int)hostlen,host);
+ return 0;
+}
+
 static int reconnect_worker(SceSize args, void *argp){
  (void)args;(void)argp;
  reconnect_result=-1;
  reconnect_frame_data=NULL;
  reconnect_frame_size=0;
+ reconnect_stage=1;
 
- if(network_probe()!=0 || !net_proxy_ok){
+ /* First try exactly what Settings shows. */
+ int health_rc=network_probe();
+
+ /* Common RC34 configuration mismatch:
+    Vita = https://PC:8443, default proxy = http://PC:8080.
+    Try the matching HTTP endpoint automatically. */
+ if(health_rc!=0 || !net_proxy_ok){
+   char fallback[256];
+   if(make_http_8080_fallback(proxy,fallback,sizeof(fallback))==0){
+     reconnect_stage=2;
+     char original[256];
+     strncpy(original,proxy,sizeof(original)-1);original[sizeof(original)-1]=0;
+     strncpy(proxy,fallback,sizeof(proxy)-1);proxy[sizeof(proxy)-1]=0;
+     health_rc=network_probe();
+     if(health_rc!=0 || !net_proxy_ok){
+       strncpy(proxy,original,sizeof(proxy)-1);proxy[sizeof(proxy)-1]=0;
+     }
+   }
+ }
+
+ if(health_rc!=0 || !net_proxy_ok){
    reconnect_result=-2;
+   reconnect_stage=0;
    reconnect_done=1;
    reconnect_busy=0;
+   sceKernelExitDeleteThread(0);
    return 0;
  }
 
+ reconnect_stage=3;
  if(create_session()!=0){
    reconnect_result=-3;
+   reconnect_stage=0;
    reconnect_done=1;
    reconnect_busy=0;
+   sceKernelExitDeleteThread(0);
    return 0;
  }
 
@@ -328,14 +367,18 @@ static int reconnect_worker(SceSize args, void *argp){
      javascript_pending=0;
  }
 
+ reconnect_stage=4;
  char u[512];
  snprintf(u,sizeof(u),"%s/frame?session=%s",proxy,session);
  NetBuffer b;
+ memset(&b,0,sizeof(b));
  if(net_get(u,&b)!=0 || !b.data || b.size==0){
    net_buffer_free(&b);
    reconnect_result=-4;
+   reconnect_stage=0;
    reconnect_done=1;
    reconnect_busy=0;
+   sceKernelExitDeleteThread(0);
    return 0;
  }
 
@@ -343,8 +386,10 @@ static int reconnect_worker(SceSize args, void *argp){
  reconnect_frame_size=b.size;
  b.data=NULL;b.size=0;
  reconnect_result=0;
+ reconnect_stage=0;
  reconnect_done=1;
  reconnect_busy=0;
+ sceKernelExitDeleteThread(0);
  return 0;
 }
 
@@ -360,6 +405,7 @@ static void reconnect_refresh(void){
  }
  reconnect_done=0;
  reconnect_result=-1;
+ reconnect_stage=1;
  reconnect_busy=1;
  snprintf(settings_status,sizeof(settings_status),"Checking proxy in background...");
  SceUID th=sceKernelCreateThread("VitaSearchReconnect",reconnect_worker,0x10000100,0x10000,0,0,NULL);
@@ -373,6 +419,14 @@ static void reconnect_refresh(void){
    sceKernelDeleteThread(th);
    snprintf(settings_status,sizeof(settings_status),"Could not start reconnect worker");
  }
+}
+
+static const char *reconnect_stage_text(void){
+ if(reconnect_stage==1)return "Checking configured proxy...";
+ if(reconnect_stage==2)return "Trying HTTP port 8080...";
+ if(reconnect_stage==3)return "Creating browser session...";
+ if(reconnect_stage==4)return "Downloading first frame...";
+ return reconnect_busy?"Connecting...":"Proxy offline";
 }
 
 static void finish_reconnect_if_ready(void){
@@ -390,6 +444,7 @@ static void finish_reconnect_if_ready(void){
      online=1;
      snprintf(settings_status,sizeof(settings_status),
               net_internet_ok?"Proxy + Internet ONLINE":"Proxy ONLINE, Internet unavailable");
+     reconnect_stage=0;
      mode=MODE_WEB;
      return;
    }
@@ -706,7 +761,7 @@ if(settings_page==3&&touch_now&&!settings_touch_down){
 settings_touch_down=touch_now;}}
   else {if(pressed&SCE_CTRL_START){mode=MODE_WEB;}else if(!sp.connected){if(pressed&SCE_CTRL_CIRCLE){mode=MODE_WEB;}else if(pressed&SCE_CTRL_SELECT){mode=MODE_SETTINGS;settings_page=0;settings_selected=0;}else if(pressed&SCE_CTRL_CROSS){if(spotify_login_web()==0)mode=MODE_WEB;}}else if(search_view){if(pressed&SCE_CTRL_UP&&result_selected>0)result_selected--;if(pressed&SCE_CTRL_DOWN&&result_selected+1<result_count)result_selected++;if(pressed&SCE_CTRL_CROSS&&result_count){spotify_play_uri(proxy,results[result_selected].uri);search_view=0;spotify_refresh();}if(pressed&SCE_CTRL_SELECT&&result_count)spotify_queue_uri(proxy,results[result_selected].uri);if(pressed&SCE_CTRL_CIRCLE)search_view=0;if(pressed&SCE_CTRL_TRIANGLE){return_mode=MODE_SPOTIFY;mode=MODE_KEYBOARD;input[0]=0;keysel=0;}}else{if(pressed&SCE_CTRL_LEFT){spotify_control_selected=(spotify_control_selected+2)%3;}if(pressed&SCE_CTRL_RIGHT){spotify_control_selected=(spotify_control_selected+1)%3;}if(pressed&SCE_CTRL_CROSS){if(spotify_control_selected==0)spotify_command(proxy,"previous");else if(spotify_control_selected==1)spotify_command(proxy,sp.playing?"pause":"play");else spotify_command(proxy,"next");spotify_refresh();}if(pressed&SCE_CTRL_LTRIGGER){spotify_command(proxy,"previous");spotify_refresh();}if(pressed&SCE_CTRL_RTRIGGER){spotify_command(proxy,"next");spotify_refresh();}if(pressed&SCE_CTRL_UP){spotify_volume(proxy,sp.volume+5);spotify_refresh();}if(pressed&SCE_CTRL_DOWN){spotify_volume(proxy,sp.volume-5);spotify_refresh();}if(pressed&SCE_CTRL_SQUARE)spotify_refresh();if(pressed&SCE_CTRL_TRIANGLE){return_mode=MODE_SPOTIFY;mode=MODE_KEYBOARD;input[0]=0;keysel=0;}if(pressed&SCE_CTRL_SELECT){if(spotify_login_web()==0)mode=MODE_WEB;}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);spotify_touch(&td);if(++counter>=180){spotify_refresh();counter=0;}}}
   vita2d_start_drawing();vita2d_clear_screen();if(mode==MODE_KEYBOARD){keyboard_draw(input,keysel,return_mode==MODE_SPOTIFY?"Spotify search":"Address / Google search");}else if(mode==MODE_SPOTIFY){draw_spotify();if(sp.connected)draw_spotify_touch_controls();}else if(mode==MODE_SETTINGS){draw_settings();}else if(frame){vita2d_draw_texture(frame,0,0);draw_browser_chrome();vita2d_draw_rectangle(cursor_x-6,cursor_y-1,13,3,RGBA8(20,255,120,255));vita2d_draw_rectangle(cursor_x-1,cursor_y-6,3,13,RGBA8(20,255,120,255));draw_mini_player();}else{
- draw_text(245,205,RGBA8(242,245,244,255),0.80f,reconnect_busy?"Connecting...":(proxy_enabled?"Proxy offline":"Proxy is OFF"));
+ draw_text(245,205,RGBA8(242,245,244,255),0.80f,proxy_enabled?reconnect_stage_text():"Proxy is OFF");
  vita2d_draw_rectangle(250,245,460,80,RGBA8(35,235,110,255));
  draw_text(330,295,RGBA8(5,25,12,255),0.78f,reconnect_busy?"CONNECTING...":"RECONNECT / REFRESH");
  vita2d_draw_rectangle(250,345,460,72,RGBA8(38,48,44,255));

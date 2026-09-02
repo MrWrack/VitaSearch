@@ -574,3 +574,18 @@ RC33 moved reconnect and settings navigation into helper functions, but `mode`
 was still local to `main()`. RC34 promotes the application mode state to global
 scope so `open_settings_root()` and `finish_reconnect_if_ready()` can change it.
 The async reconnect/no-freeze changes from RC33 are retained.
+
+## RC35 proxy protocol/port auto-fallback
+
+The default Node proxy (`npm start`) listens on **HTTP port 8080** unless TLS
+certificate/key files are configured. Older VitaSearch builds defaulted to
+`https://192.168.1.50:8443`, so reconnect could never reach a normal proxy.
+
+RC35:
+- changes new-install default to `http://192.168.1.50:8080`;
+- migrates the old exact default automatically;
+- when a configured URL is `https://<PC>:8443` and health fails, automatically
+  tries `http://<same PC>:8080`;
+- shows the current reconnect stage instead of sitting on `CONNECTING...`;
+- explicitly exits/deletes the Vita reconnect worker on every completion path;
+- keeps the RC33 async/no-freeze reconnect design.

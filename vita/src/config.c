@@ -11,10 +11,10 @@ int config_load_proxy(char *out, size_t out_size) {
   sceIoMkdir(CFG_DIR, 0777);
   int fd = sceIoOpen(CFG_FILE, SCE_O_RDONLY, 0);
   if (fd < 0) {
-    const char *def = "https://192.168.1.50:8443\n\n\n";
+    const char *def = "http://192.168.1.50:8080\n\n\n";
     fd = sceIoOpen(CFG_FILE, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
     if (fd >= 0) { sceIoWrite(fd, def, strlen(def)); sceIoClose(fd); }
-    strncpy(out, "https://192.168.1.50:8443", out_size - 1);
+    strncpy(out, "http://192.168.1.50:8080", out_size - 1);
     out[out_size - 1] = 0;
     return 0;
   }
@@ -23,6 +23,11 @@ int config_load_proxy(char *out, size_t out_size) {
   if (n <= 0) return -1;
   out[n] = 0;
   while (n > 0 && (out[n-1] == '\n' || out[n-1] == '\r' || out[n-1] == ' ')) out[--n] = 0;
+  /* RC35: old builds pointed at HTTPS :8443 even though npm start uses HTTP :8080. */
+  if (!strcmp(out, "https://192.168.1.50:8443")) {
+    strncpy(out, "http://192.168.1.50:8080", out_size - 1);
+    out[out_size - 1] = 0;
+  }
   return 0;
 }
 
