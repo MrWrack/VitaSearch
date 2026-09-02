@@ -280,3 +280,7 @@ Release-candidate stability pass:
 - Package version is now `0.99.0-rc.1`.
 
 This ZIP still needs a real VitaSDK compile in GitHub Actions before v1.0.
+
+
+## v0.99 RC2 workflow fix
+GitHub Actions host-tools installation now uses `apt-get` instead of Alpine `apk` for the current VitaSDK container.
