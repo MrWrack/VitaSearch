@@ -284,3 +284,10 @@ This ZIP still needs a real VitaSDK compile in GitHub Actions before v1.0.
 
 ## v0.99 RC2 workflow fix
 GitHub Actions host-tools installation now uses `apt-get` instead of Alpine `apk` for the current VitaSDK container.
+
+
+## VitaSearch v0.99 RC3 build fix
+
+Fixed the C compiler error `else without a previous if` in the main render chain.
+The Spotify render branch now uses braces so `draw_spotify_touch_controls()` stays
+inside the Spotify branch.
