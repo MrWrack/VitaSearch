@@ -35,6 +35,9 @@ target_link_libraries(${PROJECT_NAME}
   mbedcrypto
   z
   zstd
+  -Wl,--whole-archive
+  pthread
+  -Wl,--no-whole-archive
   -Wl,--end-group
   png
   jpeg

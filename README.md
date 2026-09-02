@@ -494,3 +494,13 @@ archive's directory layout. It extracts the official `curl-mbedtls.tar.xz` to
 a temporary directory, finds the actual `libcurl.a`, removes the stale SDK
 copy, and copies the mbedTLS archive to the exact linker path. Curl headers and
 `libcurl.pc` are also refreshed when present.
+
+
+## VitaSearch v0.99 RC24 mbedTLS pthread link fix
+
+RC23 successfully moved the linker onto the mbedTLS build of libcurl. The new
+linker errors come from `libmbedcrypto.a(threading.c.o)` and reference
+`pthread_mutex_*`, which confirms the OpenSSL/DES/MD4 problem is gone.
+
+RC24 links VitaSDK pthread inside the same static-library group and forces the
+pthread archive to be included so mbedTLS threading symbols resolve.
