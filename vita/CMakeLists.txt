@@ -30,11 +30,11 @@ target_link_libraries(${PROJECT_NAME}
   vita2d
   -Wl,--start-group
   curl
-  ssl
-  crypto
-  -Wl,--whole-archive
-  pthread
-  -Wl,--no-whole-archive
+  mbedtls
+  mbedx509
+  mbedcrypto
+  z
+  zstd
   -Wl,--end-group
   png
   jpeg
