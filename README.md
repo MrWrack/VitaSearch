@@ -404,3 +404,16 @@ GitHub Actions reached the intended `curl-mbedtls` install but VDPM reported:
 RC14 removes the non-interactive VDPM environment setting and pipes `yes` to
 the `curl-mbedtls` install, allowing VDPM to confirm replacement of the
 conflicting curl package automatically.
+
+
+## VitaSearch v0.99 RC15 exit-141 fix
+
+The `curl-mbedtls` install itself completed, but the GitHub Actions step exited
+with code 141 because `yes | vdpm install ...` runs under Bash pipefail and
+`yes` receives SIGPIPE after VDPM stops reading.
+
+RC15 replaces the endless `yes` process with a single-answer pipe:
+
+`printf 'y\n' | vdpm install curl-mbedtls`
+
+This preserves the automatic conflict confirmation without triggering SIGPIPE.
