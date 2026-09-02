@@ -521,3 +521,15 @@ RC25 placed `spotify_control_selected` below `draw_spotify()`, causing the
 compiler error `spotify_control_selected undeclared`. RC26 moves that state
 variable beside the other global Spotify state, before the renderer. All RC25
 navigation and proxy-stability changes remain included.
+
+## VitaSearch v0.99 RC27 input, proxy, JavaScript and bubble fix
+
+- Spotify disconnected screen no longer draws the playback touch overlay underneath the Connect button.
+- X on Connect stays on the Spotify screen when the proxy is offline instead of dropping to a black offline screen.
+- Spotify login switches to the web view only after the proxy session and login page open successfully.
+- JavaScript can be toggled with X or D-pad Left/Right. The UI toggles immediately; if the proxy is offline it is applied automatically after reconnect.
+- Proxy / HTTPS now has a real ON/OFF control with X or D-pad Left/Right.
+- Network and Spotify settings pages no longer run blocking network calls just by entering them.
+- Network page uses X for an explicit reconnect/status refresh.
+- Auto reconnect respects the Proxy ON/OFF state.
+- Added a real 128x128 VitaSearch icon as `sce_sys/icon0.png` so the LiveArea bubble is no longer the generic blank bubble.
