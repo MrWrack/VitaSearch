@@ -417,3 +417,14 @@ RC15 replaces the endless `yes` process with a single-answer pipe:
 `printf 'y\n' | vdpm install curl-mbedtls`
 
 This preserves the automatic conflict confirmation without triggering SIGPIPE.
+
+
+## VitaSearch v0.99 RC16 no-pipe VDPM fix
+
+GitHub Actions still returned exit code 141 immediately after installing
+`curl-mbedtls`. RC16 removes the input pipeline completely:
+
+`vdpm install curl-mbedtls <<< "y"`
+
+It also removes the `nm | grep` diagnostic pipeline and writes symbols to a
+temporary file first, preventing any later SIGPIPE/pipefail exit 141.
