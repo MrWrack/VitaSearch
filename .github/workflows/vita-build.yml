@@ -57,13 +57,18 @@ jobs:
             mbedtls \
             zstd
 
-          yes | vdpm install curl-mbedtls
+          # VitaSDK's vdpm currently returns SIGPIPE/141 after completing this
+          # replacement in the container. Do not trust its exit status here:
+          # continue, then verify the resulting libcurl archive directly.
+          vdpm install curl-mbedtls <<< "y" || true
 
-          echo "=== Installed curl variant ==="
-          vdpm list curl-mbedtls
+          echo "curl-mbedtls replacement command returned; validating installed archive"
+
+          test -f "$VITASDK/arm-vita-eabi/lib/libcurl.a"
 
           echo "=== libcurl TLS check ==="
-          if arm-vita-eabi-nm "$VITASDK/arm-vita-eabi/lib/libcurl.a" | grep -E 'DES_set_|MD4_(Init|Update|Final)' >/dev/null; then
+          arm-vita-eabi-nm "$VITASDK/arm-vita-eabi/lib/libcurl.a" > /tmp/libcurl-symbols.txt
+          if grep -E 'DES_set_|MD4_(Init|Update|Final)' /tmp/libcurl-symbols.txt >/dev/null; then
             echo "ERROR: libcurl.a still uses OpenSSL"
             exit 1
           fi
@@ -73,7 +78,8 @@ jobs:
           echo "VITASDK=$VITASDK"
           arm-vita-eabi-gcc --version
           cmake --version
-          vdpm list | head -100
+          vdpm list > /tmp/vdpm-list.txt || true
+          head -100 /tmp/vdpm-list.txt
 
       - name: Configure VitaSearch
         working-directory: vita
