@@ -31,6 +31,9 @@ target_link_libraries(${PROJECT_NAME}
   curl
   ssl
   crypto
+  -Wl,--whole-archive
+  pthread
+  -Wl,--no-whole-archive
   png
   jpeg
   z
