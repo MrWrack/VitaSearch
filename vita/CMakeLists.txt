@@ -13,7 +13,7 @@ include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
 
 set(VITA_APP_NAME "VitaSearch")
 set(VITA_TITLEID "VSRCH0001")
-set(VITA_VERSION "00.993")
+set(VITA_VERSION "00.99")
 
 add_executable(${PROJECT_NAME}
   src/main.c
