@@ -291,3 +291,11 @@ GitHub Actions host-tools installation now uses `apt-get` instead of Alpine `apk
 Fixed the C compiler error `else without a previous if` in the main render chain.
 The Spotify render branch now uses braces so `draw_spotify_touch_controls()` stays
 inside the Spotify branch.
+
+
+## VitaSearch v0.99 RC4 version-format fix
+
+Fixed VitaSDK CMake configure error:
+`Invalid version '00.993' change to format ##.##`
+
+The VPK metadata version is now `00.99`, while the project/package prerelease remains RC4.
