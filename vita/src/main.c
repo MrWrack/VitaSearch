@@ -80,7 +80,6 @@ static int open_target(const char*t){
  snprintf(b,sizeof(b),"{\"session\":\"%s\",\"url\":\"%s\",\"search_engine\":\"%s\",\"use_selected_search\":%s}",
   session,e,search_engine_id(),use_selected_search?"true":"false");
  return post_web("/open",b);
-}",session,e);return post_web("/open",b);}
 static int remote_simple(const char*p){char b[160];snprintf(b,sizeof(b),"{\"session\":\"%s\"}",session);return post_web(p,b);}
 static int remote_click(int x,int y){char b[256];snprintf(b,sizeof(b),"{\"session\":\"%s\",\"x\":%d,\"y\":%d}",session,x,y);return post_web("/click",b);}
 static int remote_scroll(int dx,int dy){char b[256];snprintf(b,sizeof(b),"{\"session\":\"%s\",\"dx\":%d,\"dy\":%d}",session,dx,dy);return post_web("/scroll",b);}
@@ -251,7 +250,7 @@ static void draw_settings_appearance(void){
 
 static void draw_settings_about(void){
  draw_settings_header("About VitaSearch");
- draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC4");
+ draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC5");
  draw_text(44,142,RGBA8(242,245,244,255),0.68f,"Modern web rendering through Chromium proxy.");
  draw_text(44,180,RGBA8(242,245,244,255),0.68f,"PS Vita native controls + touch.");
  draw_text(44,218,RGBA8(242,245,244,255),0.68f,"Spotify Connect integration.");
