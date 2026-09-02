@@ -316,3 +316,13 @@ corrupted duplicate tail, but the function still needed its final `}`. Without
 it, the compiler treated later functions as if they were nested inside
 `open_target()`, producing errors such as `invalid storage class for function`
 and `expected declaration or statement at end of input`.
+
+
+## VitaSearch v0.99 RC7 compile fix
+
+Fixed the next VitaSDK compiler errors:
+
+- Added a forward declaration for `network_probe()` before Settings calls it.
+- Replaced the non-existent `spotify_cmd()` calls in the touch handler with the
+  existing native helpers: `spotify_command()`, `spotify_seek()` and
+  `spotify_volume()`.
