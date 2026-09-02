@@ -567,3 +567,10 @@ X, Triangle or touch starts a Vita kernel worker thread. The UI remains responsi
 shows CONNECTING... while the worker checks `/health`, creates the browser session and
 downloads the first PNG frame. PNG texture creation is handed back to the main UI thread.
 Automatic retries also use the same async path and run less often.
+
+## RC34 mode scope compile fix
+
+RC33 moved reconnect and settings navigation into helper functions, but `mode`
+was still local to `main()`. RC34 promotes the application mode state to global
+scope so `open_settings_root()` and `finish_reconnect_if_ready()` can change it.
+The async reconnect/no-freeze changes from RC33 are retained.
