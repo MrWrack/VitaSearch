@@ -187,17 +187,17 @@ static void draw_settings_default_search(void){
 
 static void draw_settings_network(void){
  draw_settings_header("Network");
- draw_settings_row(78,"Vita / Proxy",0,net_proxy_ok?"CONNECTED":"OFFLINE");
- draw_settings_row(126,"Internet",0,net_internet_ok?"ONLINE":"NO ACCESS");
- draw_settings_row(174,"HTTPS",0,net_https_ok?"ON":"OFF");
- char ping[64];if(net_latency_ms>=0)snprintf(ping,sizeof(ping),"%d ms",net_latency_ms);else snprintf(ping,sizeof(ping),"--");
- draw_settings_row(222,"Response time",0,ping);
- draw_text(44,300,RGBA8(165,180,175,255),0.66f,proxy);
- draw_text(44,340,RGBA8(135,150,145,255),0.60f,"Cached status. Opening this page does not run a blocking test.");
- draw_text(44,378,RGBA8(35,235,110,255),0.60f,"Press X to reconnect / refresh now.");
- if(settings_status[0])draw_text(44,418,RGBA8(235,180,80,255),0.60f,settings_status);
+ draw_settings_row(78,"Reconnect / Refresh",settings_selected==0,"PRESS X");
+ draw_settings_row(126,"Vita / Proxy",0,net_proxy_ok?"ONLINE":"OFFLINE");
+ draw_settings_row(174,"Internet",0,net_internet_ok?"ONLINE":"OFFLINE");
+ draw_settings_row(222,"HTTPS",0,net_https_ok?"OK":"--");
+ char tmp[96];snprintf(tmp,sizeof(tmp),"Latency: %d ms",net_latency_ms);
+ draw_text(44,278,RGBA8(242,245,244,255),0.68f,tmp);
+ draw_text(44,314,RGBA8(242,245,244,255),0.68f,"Proxy base URL:");
+ draw_text(44,346,RGBA8(35,235,110,255),0.64f,proxy);
+ draw_text(44,390,RGBA8(135,150,145,255),0.60f,"X runs a fresh proxy + internet check.");
+ if(settings_status[0])draw_text(44,430,RGBA8(235,180,80,255),0.60f,settings_status);
 }
-
 static void draw_settings_privacy(void){
  draw_settings_header("Privacy");
  draw_text(44,92,RGBA8(242,245,244,255),0.72f,"Cookies and site data stay in the proxy browser context.");
@@ -263,7 +263,7 @@ static void draw_settings_appearance(void){
 
 static void draw_settings_about(void){
  draw_settings_header("About VitaSearch");
- draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC29");
+ draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC30");
  draw_text(44,142,RGBA8(242,245,244,255),0.68f,"Modern web rendering through Chromium proxy.");
  draw_text(44,180,RGBA8(242,245,244,255),0.68f,"PS Vita native controls + touch.");
  draw_text(44,218,RGBA8(242,245,244,255),0.68f,"Spotify Connect integration.");
@@ -308,14 +308,17 @@ static void settings_action(void){
  }
  if(settings_page==3){
    if(!proxy_enabled){snprintf(settings_status,sizeof(settings_status),"Proxy is OFF");return;}
-   online=create_session()==0;
-   if(online){
-     if(javascript_pending&&settings_set_javascript(proxy,session,javascript_enabled)==0)javascript_pending=0;
-     network_probe();refresh_frame();refresh_spotify_status();
-     snprintf(settings_status,sizeof(settings_status),"Proxy connected");
+   network_probe();
+   if(net_proxy_ok){
+     online=create_session()==0;
+     if(online){
+       if(javascript_pending&&settings_set_javascript(proxy,session,javascript_enabled)==0)javascript_pending=0;
+       refresh_frame();refresh_spotify_status();
+       snprintf(settings_status,sizeof(settings_status),net_internet_ok?"Proxy + Internet ONLINE":"Proxy ONLINE, Internet unavailable");
+     }else snprintf(settings_status,sizeof(settings_status),"Proxy reachable, browser session failed");
    }else{
-     net_proxy_ok=0;net_internet_ok=0;
-     snprintf(settings_status,sizeof(settings_status),"Proxy offline");
+     online=0;
+     snprintf(settings_status,sizeof(settings_status),"Proxy unreachable - check PC IP/port/firewall");
    }
    return;
  }
@@ -570,7 +573,7 @@ int main(void){sceSysmoduleLoadModule(SCE_SYSMODULE_NET);sceSysmoduleLoadModule(
  if(online){network_probe();refresh_spotify_status();}
  snprintf(browser_tabs[0].title,sizeof(browser_tabs[0].title),"Google");if(online){open_target("google.com");refresh_frame();spotify_refresh();}
  AppMode mode=MODE_WEB,return_mode=MODE_WEB;unsigned int old=0;int counter=0,keysel=0;char input[INPUT_MAX+1]="";
- for(;;){SceCtrlData pad;sceCtrlPeekBufferPositive(0,&pad,1);unsigned int pressed=pad.buttons&~old;old=pad.buttons;if((pad.buttons&SCE_CTRL_START)&&(pad.buttons&SCE_CTRL_SELECT))break;
+ for(;;){SceCtrlData pad;sceCtrlPeekBufferPositiveExt(0,&pad,1);unsigned int pressed=pad.buttons&~old;old=pad.buttons;if((pad.buttons&SCE_CTRL_START)&&(pad.buttons&SCE_CTRL_SELECT))break;
   if(mode==MODE_KEYBOARD){int row=keysel/KEY_COLS,col=keysel%KEY_COLS;if(pressed&SCE_CTRL_LEFT)col=(col+9)%10;if(pressed&SCE_CTRL_RIGHT)col=(col+1)%10;if(pressed&SCE_CTRL_UP)row=row>0?row-1:5;if(pressed&SCE_CTRL_DOWN)row=row<5?row+1:0;keysel=row*10+col;if(keysel>=KEY_COUNT)keysel=KEY_COUNT-1;if(pressed&SCE_CTRL_CIRCLE){if(return_mode==MODE_WEB)close_search_keyboard(&mode,return_mode,input);else mode=return_mode;}else if(pressed&SCE_CTRL_TRIANGLE){if(return_mode==MODE_WEB)submit_search_keyboard(&mode,return_mode,input);else{if(input[0]){result_count=spotify_search(proxy,input,results,RESULT_MAX);result_selected=0;search_view=1;spotify_refresh();}mode=return_mode;}}else if(pressed&SCE_CTRL_CROSS){if(keysel==KEY_COUNT-1){if(return_mode==MODE_WEB)submit_search_keyboard(&mode,return_mode,input);else{if(input[0]){result_count=spotify_search(proxy,input,results,RESULT_MAX);result_selected=0;search_view=1;spotify_refresh();}mode=return_mode;}}else if(!strcmp(keys[keysel],"<")){size_t n=strlen(input);if(n)input[n-1]=0;}else append_input(input,keys[keysel]);}if(mode==MODE_KEYBOARD&&return_mode==MODE_WEB){SceTouchData ktd;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&ktd,1);keyboard_touch_dismiss(&ktd,&mode,return_mode,input);}}
   else if(mode==MODE_WEB){if(pressed&SCE_CTRL_START){mode=MODE_SPOTIFY;if(online)spotify_refresh();}else if(pressed&SCE_CTRL_SELECT){mode=MODE_SETTINGS;settings_page=0;settings_selected=0;settings_status[0]=0;}else if(!online){if(proxy_enabled&&(pressed&SCE_CTRL_CROSS||pressed&SCE_CTRL_TRIANGLE)){online=create_session()==0;if(online){if(javascript_pending&&settings_set_javascript(proxy,session,javascript_enabled)==0)javascript_pending=0;network_probe();refresh_frame();spotify_refresh();refresh_spotify_status();}}if(proxy_enabled&&++counter>=60){online=create_session()==0;if(online){if(javascript_pending&&settings_set_javascript(proxy,session,javascript_enabled)==0)javascript_pending=0;network_probe();refresh_frame();spotify_refresh();refresh_spotify_status();}counter=0;}}else if(online){int ax=(int)pad.lx-128,ay=(int)pad.ly-128;if(ax>20||ax<-20)cursor_x+=ax/22;if(ay>20||ay<-20)cursor_y+=ay/22;if(cursor_x<0)cursor_x=0;if(cursor_x>959)cursor_x=959;if(cursor_y<82)cursor_y=82;if(cursor_y>467)cursor_y=467;if(pressed&SCE_CTRL_UP){remote_scroll(0,-360);refresh_frame();}if(pressed&SCE_CTRL_DOWN){remote_scroll(0,360);refresh_frame();}if(pressed&SCE_CTRL_LEFT&&browser_tab_count>1){int ni=browser_tab_active-1;if(ni<0)ni=browser_tab_count-1;tab_select(ni);}if(pressed&SCE_CTRL_RIGHT&&browser_tab_count>1){int ni=(browser_tab_active+1)%browser_tab_count;tab_select(ni);}if(pressed&SCE_CTRL_CROSS){remote_click(cursor_x,cursor_y);refresh_frame();}if(pressed&SCE_CTRL_LTRIGGER){remote_simple("/back");refresh_frame();}if(pressed&SCE_CTRL_RTRIGGER){remote_simple("/forward");refresh_frame();}if(pressed&SCE_CTRL_SQUARE){open_search_keyboard(&mode,&return_mode,input,&keysel);}if(pressed&SCE_CTRL_TRIANGLE){if(search_text[0]){open_target(search_text);refresh_frame();}else open_search_keyboard(&mode,&return_mode,input,&keysel);}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);browser_touch(&td,&mode,&return_mode,input,&keysel);if(++counter>=120){refresh_frame();spotify_refresh();network_probe();refresh_spotify_status();if(!net_proxy_ok)online=0;counter=0;}}}
   else if(mode==MODE_SETTINGS){if(pressed&SCE_CTRL_CIRCLE){if(settings_page){settings_page=0;settings_selected=0;settings_status[0]=0;}else mode=MODE_WEB;}else{int scount=settings_page==0?SETTINGS_CATEGORY_COUNT:(settings_page==5?CLEAR_COUNT:(settings_page==2?2:1));if(pressed&SCE_CTRL_UP&&settings_selected>0)settings_selected--;if(pressed&SCE_CTRL_DOWN&&settings_selected+1<scount)settings_selected++;if(pressed&SCE_CTRL_CROSS)settings_action();if((pressed&SCE_CTRL_LEFT||pressed&SCE_CTRL_RIGHT)&&(settings_page==1||settings_page==2||settings_page==6))settings_action();}}

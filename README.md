@@ -543,3 +543,6 @@ to indexed palette PNG while retaining all RC27 proxy, JavaScript and input fixe
 
 ## RC29 install recovery
 Removes the newly added LiveArea icon from VPK packaging to restore the previously installable package layout. Runtime navigation, proxy, JavaScript and Spotify fixes remain.
+
+## RC30 Network input fix
+Network has a selectable Reconnect/Refresh row. X uses extended Vita controller polling and performs a fresh health probe before recreating the browser session. Clearer proxy failure messages included.
