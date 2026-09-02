@@ -28,12 +28,14 @@ target_include_directories(${PROJECT_NAME} PRIVATE src)
 
 target_link_libraries(${PROJECT_NAME}
   vita2d
+  -Wl,--start-group
   curl
   ssl
   crypto
   -Wl,--whole-archive
   pthread
   -Wl,--no-whole-archive
+  -Wl,--end-group
   png
   jpeg
   z
