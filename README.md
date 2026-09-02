@@ -355,3 +355,13 @@ The build now links VitaSDK's pthread library as a whole archive:
 
 This follows the VitaSDK workaround used when static libraries reference pthread
 symbols that the linker would otherwise discard.
+
+
+## VitaSearch v0.99 RC10 link-group fix
+
+The pthread symbols from RC9 are no longer the visible blocker. The linker now
+reaches OpenSSL internal stack symbols such as `sk_num` and `sk_value`.
+
+Static `curl`, `ssl`, `crypto` and pthread dependencies can be cyclic. They are
+now wrapped in GNU ld's `--start-group/--end-group`, which makes the linker
+rescan the archives until their mutual references are resolved.
