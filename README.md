@@ -338,3 +338,20 @@ Changes:
 - GitHub Actions installs the VitaSDK `openssl` package.
 - `ssl` and `crypto` are linked after `curl` in CMake so static libcurl can resolve
   its OpenSSL dependencies.
+
+
+## VitaSearch v0.99 RC9 pthread link fix
+
+Fixed the next VitaSDK linker errors from OpenSSL/libcrypto:
+
+- `pthread_atfork`
+- `pthread_getspecific`
+- `pthread_self`
+- `pthread_equal`
+
+The build now links VitaSDK's pthread library as a whole archive:
+
+`-Wl,--whole-archive pthread -Wl,--no-whole-archive`
+
+This follows the VitaSDK workaround used when static libraries reference pthread
+symbols that the linker would otherwise discard.
