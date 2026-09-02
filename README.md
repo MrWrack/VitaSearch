@@ -440,3 +440,57 @@ VDPM result still fails.
 The following libcurl symbol check remains mandatory, so the build only
 continues if the installed archive is actually free of the old OpenSSL DES/MD4
 references.
+
+
+## VitaSearch v0.99 RC18 VDPM subshell fix
+
+The GitHub runner still aborted on VDPM status 141 before the outer script could
+handle it. RC18 runs the conflicting package replacement in a nested Bash
+process. The nested process converts only status 141 (and 0) to success, while
+all other VDPM failures remain fatal. The mandatory libcurl symbol check still
+runs immediately afterward.
+
+
+## VitaSearch v0.99 RC19 explicit errexit disable
+
+RC18 still stopped immediately on VDPM's 141. RC19 explicitly launches the
+nested Bash with `+e` and also executes `set +e` inside it, ensuring GitHub's
+outer `-e` behavior cannot prevent capture of VDPM's return code. Only status
+0 or the observed post-install 141 is normalized to success.
+
+
+## VitaSearch v0.99 RC20 verified VDPM-141 workaround
+
+The install log repeatedly proves that `curl` is removed and `curl-mbedtls` is
+installed before VDPM returns 141. RC20 therefore places that VDPM invocation
+directly in an `|| true` list, which Bash `errexit` cannot abort.
+
+This does not blindly trust the installation: the workflow immediately checks
+that `libcurl.a` exists and scans its symbols for the old OpenSSL DES/MD4
+references. The later `vdpm list | head` pipeline was also removed to prevent a
+second possible SIGPIPE/141.
+
+
+## VitaSearch v0.99 RC21 TLS-check correction
+
+RC20 successfully got past VDPM's exit-141 behavior. The remaining failure was
+our own symbol heuristic (`DES_set_` / `MD4_*`), not the package installer.
+RC21 removes that heuristic and verifies that `libcurl.a` exists, then lets the
+actual Vita linker validate the curl-mbedTLS dependency set.
+
+## VitaSearch v0.99 RC22 direct curl-mbedTLS package
+
+The linker proved the installed libcurl was still the OpenSSL build (DES/MD4
+references). RC22 downloads VitaSDK's official `curl-mbedtls.tar.xz` release
+asset and extracts it directly over `$VITASDK` after the VDPM attempt. This
+avoids VDPM's post-install exit-141 transaction behavior.
+
+
+## VitaSearch v0.99 RC23 force-correct libcurl
+
+RC22 reached the linker but the linker still opened the OpenSSL-flavoured
+`$VITASDK/arm-vita-eabi/lib/libcurl.a`. RC23 no longer assumes the release
+archive's directory layout. It extracts the official `curl-mbedtls.tar.xz` to
+a temporary directory, finds the actual `libcurl.a`, removes the stale SDK
+copy, and copies the mbedTLS archive to the exact linker path. Curl headers and
+`libcurl.pc` are also refreshed when present.
