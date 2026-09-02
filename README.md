@@ -546,3 +546,13 @@ Removes the newly added LiveArea icon from VPK packaging to restore the previous
 
 ## RC30 Network input fix
 Network has a selectable Reconnect/Refresh row. X uses extended Vita controller polling and performs a fresh health probe before recreating the browser session. Clearer proxy failure messages included.
+
+## RC31 Network Refresh Touch Fix
+
+- Network now has a large real RECONNECT / REFRESH button.
+- X runs refresh.
+- Triangle runs refresh as a second controller shortcut.
+- Touch on the green refresh button runs refresh.
+- Network settings and offline recovery now share the same reconnect function.
+- Clear result text distinguishes proxy unreachable, browser-session failure and internet unavailable.
+- RC30/RC29 install-safe VPK layout is retained.

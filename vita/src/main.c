@@ -187,16 +187,18 @@ static void draw_settings_default_search(void){
 
 static void draw_settings_network(void){
  draw_settings_header("Network");
- draw_settings_row(78,"Reconnect / Refresh",settings_selected==0,"PRESS X");
- draw_settings_row(126,"Vita / Proxy",0,net_proxy_ok?"ONLINE":"OFFLINE");
- draw_settings_row(174,"Internet",0,net_internet_ok?"ONLINE":"OFFLINE");
- draw_settings_row(222,"HTTPS",0,net_https_ok?"OK":"--");
+ vita2d_draw_rectangle(34,72,892,58,RGBA8(35,235,110,settings_selected==0?255:110));
+ draw_text(58,108,RGBA8(5,25,12,255),0.72f,"RECONNECT / REFRESH");
+ draw_text(742,108,RGBA8(5,25,12,255),0.66f,"X / TAP");
+ draw_settings_row(144,"Vita / Proxy",0,net_proxy_ok?"ONLINE":"OFFLINE");
+ draw_settings_row(192,"Internet",0,net_internet_ok?"ONLINE":"OFFLINE");
+ draw_settings_row(240,"HTTPS",0,net_https_ok?"OK":"--");
  char tmp[96];snprintf(tmp,sizeof(tmp),"Latency: %d ms",net_latency_ms);
- draw_text(44,278,RGBA8(242,245,244,255),0.68f,tmp);
- draw_text(44,314,RGBA8(242,245,244,255),0.68f,"Proxy base URL:");
- draw_text(44,346,RGBA8(35,235,110,255),0.64f,proxy);
- draw_text(44,390,RGBA8(135,150,145,255),0.60f,"X runs a fresh proxy + internet check.");
- if(settings_status[0])draw_text(44,430,RGBA8(235,180,80,255),0.60f,settings_status);
+ draw_text(44,302,RGBA8(242,245,244,255),0.68f,tmp);
+ draw_text(44,338,RGBA8(242,245,244,255),0.68f,"Proxy base URL:");
+ draw_text(44,370,RGBA8(35,235,110,255),0.64f,proxy);
+ draw_text(44,412,RGBA8(135,150,145,255),0.60f,"X, Triangle or tap the green button to refresh.");
+ if(settings_status[0])draw_text(44,448,RGBA8(235,180,80,255),0.60f,settings_status);
 }
 static void draw_settings_privacy(void){
  draw_settings_header("Privacy");
@@ -263,7 +265,7 @@ static void draw_settings_appearance(void){
 
 static void draw_settings_about(void){
  draw_settings_header("About VitaSearch");
- draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC30");
+ draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC31");
  draw_text(44,142,RGBA8(242,245,244,255),0.68f,"Modern web rendering through Chromium proxy.");
  draw_text(44,180,RGBA8(242,245,244,255),0.68f,"PS Vita native controls + touch.");
  draw_text(44,218,RGBA8(242,245,244,255),0.68f,"Spotify Connect integration.");
@@ -283,6 +285,33 @@ static void draw_settings(void){
   case 10:draw_settings_about();break;
   default:draw_settings_main();break;
  }
+}
+
+
+static void reconnect_refresh(void){
+ if(!proxy_enabled){
+   snprintf(settings_status,sizeof(settings_status),"Proxy is OFF");
+   online=0; net_proxy_ok=0; net_internet_ok=0;
+   return;
+ }
+ snprintf(settings_status,sizeof(settings_status),"Checking proxy...");
+ network_probe();
+ if(!net_proxy_ok){
+   online=0;
+   snprintf(settings_status,sizeof(settings_status),"Proxy unreachable - check PC IP/port/firewall");
+   return;
+ }
+ online=create_session()==0;
+ if(!online){
+   snprintf(settings_status,sizeof(settings_status),"Proxy reachable, browser session failed");
+   return;
+ }
+ if(javascript_pending&&settings_set_javascript(proxy,session,javascript_enabled)==0)
+   javascript_pending=0;
+ refresh_frame();
+ refresh_spotify_status();
+ snprintf(settings_status,sizeof(settings_status),
+          net_internet_ok?"Proxy + Internet ONLINE":"Proxy ONLINE, Internet unavailable");
 }
 
 static void settings_action(void){
@@ -306,22 +335,7 @@ static void settings_action(void){
    else search_engine_index=(search_engine_index+1)%3;
    return;
  }
- if(settings_page==3){
-   if(!proxy_enabled){snprintf(settings_status,sizeof(settings_status),"Proxy is OFF");return;}
-   network_probe();
-   if(net_proxy_ok){
-     online=create_session()==0;
-     if(online){
-       if(javascript_pending&&settings_set_javascript(proxy,session,javascript_enabled)==0)javascript_pending=0;
-       refresh_frame();refresh_spotify_status();
-       snprintf(settings_status,sizeof(settings_status),net_internet_ok?"Proxy + Internet ONLINE":"Proxy ONLINE, Internet unavailable");
-     }else snprintf(settings_status,sizeof(settings_status),"Proxy reachable, browser session failed");
-   }else{
-     online=0;
-     snprintf(settings_status,sizeof(settings_status),"Proxy unreachable - check PC IP/port/firewall");
-   }
-   return;
- }
+ if(settings_page==3){reconnect_refresh();return; }
  if(settings_page==6){
    proxy_enabled=!proxy_enabled;
    if(!proxy_enabled){
@@ -576,7 +590,16 @@ int main(void){sceSysmoduleLoadModule(SCE_SYSMODULE_NET);sceSysmoduleLoadModule(
  for(;;){SceCtrlData pad;sceCtrlPeekBufferPositiveExt(0,&pad,1);unsigned int pressed=pad.buttons&~old;old=pad.buttons;if((pad.buttons&SCE_CTRL_START)&&(pad.buttons&SCE_CTRL_SELECT))break;
   if(mode==MODE_KEYBOARD){int row=keysel/KEY_COLS,col=keysel%KEY_COLS;if(pressed&SCE_CTRL_LEFT)col=(col+9)%10;if(pressed&SCE_CTRL_RIGHT)col=(col+1)%10;if(pressed&SCE_CTRL_UP)row=row>0?row-1:5;if(pressed&SCE_CTRL_DOWN)row=row<5?row+1:0;keysel=row*10+col;if(keysel>=KEY_COUNT)keysel=KEY_COUNT-1;if(pressed&SCE_CTRL_CIRCLE){if(return_mode==MODE_WEB)close_search_keyboard(&mode,return_mode,input);else mode=return_mode;}else if(pressed&SCE_CTRL_TRIANGLE){if(return_mode==MODE_WEB)submit_search_keyboard(&mode,return_mode,input);else{if(input[0]){result_count=spotify_search(proxy,input,results,RESULT_MAX);result_selected=0;search_view=1;spotify_refresh();}mode=return_mode;}}else if(pressed&SCE_CTRL_CROSS){if(keysel==KEY_COUNT-1){if(return_mode==MODE_WEB)submit_search_keyboard(&mode,return_mode,input);else{if(input[0]){result_count=spotify_search(proxy,input,results,RESULT_MAX);result_selected=0;search_view=1;spotify_refresh();}mode=return_mode;}}else if(!strcmp(keys[keysel],"<")){size_t n=strlen(input);if(n)input[n-1]=0;}else append_input(input,keys[keysel]);}if(mode==MODE_KEYBOARD&&return_mode==MODE_WEB){SceTouchData ktd;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&ktd,1);keyboard_touch_dismiss(&ktd,&mode,return_mode,input);}}
   else if(mode==MODE_WEB){if(pressed&SCE_CTRL_START){mode=MODE_SPOTIFY;if(online)spotify_refresh();}else if(pressed&SCE_CTRL_SELECT){mode=MODE_SETTINGS;settings_page=0;settings_selected=0;settings_status[0]=0;}else if(!online){if(proxy_enabled&&(pressed&SCE_CTRL_CROSS||pressed&SCE_CTRL_TRIANGLE)){online=create_session()==0;if(online){if(javascript_pending&&settings_set_javascript(proxy,session,javascript_enabled)==0)javascript_pending=0;network_probe();refresh_frame();spotify_refresh();refresh_spotify_status();}}if(proxy_enabled&&++counter>=60){online=create_session()==0;if(online){if(javascript_pending&&settings_set_javascript(proxy,session,javascript_enabled)==0)javascript_pending=0;network_probe();refresh_frame();spotify_refresh();refresh_spotify_status();}counter=0;}}else if(online){int ax=(int)pad.lx-128,ay=(int)pad.ly-128;if(ax>20||ax<-20)cursor_x+=ax/22;if(ay>20||ay<-20)cursor_y+=ay/22;if(cursor_x<0)cursor_x=0;if(cursor_x>959)cursor_x=959;if(cursor_y<82)cursor_y=82;if(cursor_y>467)cursor_y=467;if(pressed&SCE_CTRL_UP){remote_scroll(0,-360);refresh_frame();}if(pressed&SCE_CTRL_DOWN){remote_scroll(0,360);refresh_frame();}if(pressed&SCE_CTRL_LEFT&&browser_tab_count>1){int ni=browser_tab_active-1;if(ni<0)ni=browser_tab_count-1;tab_select(ni);}if(pressed&SCE_CTRL_RIGHT&&browser_tab_count>1){int ni=(browser_tab_active+1)%browser_tab_count;tab_select(ni);}if(pressed&SCE_CTRL_CROSS){remote_click(cursor_x,cursor_y);refresh_frame();}if(pressed&SCE_CTRL_LTRIGGER){remote_simple("/back");refresh_frame();}if(pressed&SCE_CTRL_RTRIGGER){remote_simple("/forward");refresh_frame();}if(pressed&SCE_CTRL_SQUARE){open_search_keyboard(&mode,&return_mode,input,&keysel);}if(pressed&SCE_CTRL_TRIANGLE){if(search_text[0]){open_target(search_text);refresh_frame();}else open_search_keyboard(&mode,&return_mode,input,&keysel);}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);browser_touch(&td,&mode,&return_mode,input,&keysel);if(++counter>=120){refresh_frame();spotify_refresh();network_probe();refresh_spotify_status();if(!net_proxy_ok)online=0;counter=0;}}}
-  else if(mode==MODE_SETTINGS){if(pressed&SCE_CTRL_CIRCLE){if(settings_page){settings_page=0;settings_selected=0;settings_status[0]=0;}else mode=MODE_WEB;}else{int scount=settings_page==0?SETTINGS_CATEGORY_COUNT:(settings_page==5?CLEAR_COUNT:(settings_page==2?2:1));if(pressed&SCE_CTRL_UP&&settings_selected>0)settings_selected--;if(pressed&SCE_CTRL_DOWN&&settings_selected+1<scount)settings_selected++;if(pressed&SCE_CTRL_CROSS)settings_action();if((pressed&SCE_CTRL_LEFT||pressed&SCE_CTRL_RIGHT)&&(settings_page==1||settings_page==2||settings_page==6))settings_action();}}
+  else if(mode==MODE_SETTINGS){if(pressed&SCE_CTRL_CIRCLE){if(settings_page){settings_page=0;settings_selected=0;settings_status[0]=0;}else mode=MODE_WEB;}else{int scount=settings_page==0?SETTINGS_CATEGORY_COUNT:(settings_page==5?CLEAR_COUNT:(settings_page==2?2:1));if(pressed&SCE_CTRL_UP&&settings_selected>0)settings_selected--;if(pressed&SCE_CTRL_DOWN&&settings_selected+1<scount)settings_selected++;if(pressed&SCE_CTRL_CROSS)settings_action();if((pressed&SCE_CTRL_TRIANGLE)&&settings_page==3)reconnect_refresh();if((pressed&SCE_CTRL_LEFT||pressed&SCE_CTRL_RIGHT)&&(settings_page==1||settings_page==2||settings_page==6))settings_action();
+SceTouchData std;memset(&std,0,sizeof(std));sceTouchPeek(SCE_TOUCH_PORT_FRONT,&std,1);
+static int settings_touch_down=0;
+int touch_now=std.reportNum>0;
+if(settings_page==3&&touch_now&&!settings_touch_down){
+ int tx=std.report[0].x*960/1919;
+ int ty=std.report[0].y*544/1087;
+ if(tx>=34&&tx<=926&&ty>=72&&ty<=130)reconnect_refresh();
+}
+settings_touch_down=touch_now;}}
   else {if(pressed&SCE_CTRL_START){mode=MODE_WEB;}else if(!sp.connected){if(pressed&SCE_CTRL_CIRCLE){mode=MODE_WEB;}else if(pressed&SCE_CTRL_SELECT){mode=MODE_SETTINGS;settings_page=0;settings_selected=0;}else if(pressed&SCE_CTRL_CROSS){if(spotify_login_web()==0)mode=MODE_WEB;}}else if(search_view){if(pressed&SCE_CTRL_UP&&result_selected>0)result_selected--;if(pressed&SCE_CTRL_DOWN&&result_selected+1<result_count)result_selected++;if(pressed&SCE_CTRL_CROSS&&result_count){spotify_play_uri(proxy,results[result_selected].uri);search_view=0;spotify_refresh();}if(pressed&SCE_CTRL_SELECT&&result_count)spotify_queue_uri(proxy,results[result_selected].uri);if(pressed&SCE_CTRL_CIRCLE)search_view=0;if(pressed&SCE_CTRL_TRIANGLE){return_mode=MODE_SPOTIFY;mode=MODE_KEYBOARD;input[0]=0;keysel=0;}}else{if(pressed&SCE_CTRL_LEFT){spotify_control_selected=(spotify_control_selected+2)%3;}if(pressed&SCE_CTRL_RIGHT){spotify_control_selected=(spotify_control_selected+1)%3;}if(pressed&SCE_CTRL_CROSS){if(spotify_control_selected==0)spotify_command(proxy,"previous");else if(spotify_control_selected==1)spotify_command(proxy,sp.playing?"pause":"play");else spotify_command(proxy,"next");spotify_refresh();}if(pressed&SCE_CTRL_LTRIGGER){spotify_command(proxy,"previous");spotify_refresh();}if(pressed&SCE_CTRL_RTRIGGER){spotify_command(proxy,"next");spotify_refresh();}if(pressed&SCE_CTRL_UP){spotify_volume(proxy,sp.volume+5);spotify_refresh();}if(pressed&SCE_CTRL_DOWN){spotify_volume(proxy,sp.volume-5);spotify_refresh();}if(pressed&SCE_CTRL_SQUARE)spotify_refresh();if(pressed&SCE_CTRL_TRIANGLE){return_mode=MODE_SPOTIFY;mode=MODE_KEYBOARD;input[0]=0;keysel=0;}if(pressed&SCE_CTRL_SELECT){if(spotify_login_web()==0)mode=MODE_WEB;}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);spotify_touch(&td);if(++counter>=180){spotify_refresh();counter=0;}}}
   vita2d_start_drawing();vita2d_clear_screen();if(mode==MODE_KEYBOARD){keyboard_draw(input,keysel,return_mode==MODE_SPOTIFY?"Spotify search":"Address / Google search");}else if(mode==MODE_SPOTIFY){draw_spotify();if(sp.connected)draw_spotify_touch_controls();}else if(mode==MODE_SETTINGS){draw_settings();}else if(frame){vita2d_draw_texture(frame,0,0);draw_browser_chrome();vita2d_draw_rectangle(cursor_x-6,cursor_y-1,13,3,RGBA8(20,255,120,255));vita2d_draw_rectangle(cursor_x-1,cursor_y-6,3,13,RGBA8(20,255,120,255));draw_mini_player();}else{draw_text(70,225,RGBA8(240,240,240,255),1.0f,proxy_enabled?"Proxy offline. Start proxy - X retries now.":"Proxy is OFF. SELECT -> Proxy / HTTPS to enable.");}vita2d_end_drawing();vita2d_swap_buffers();sceKernelDelayThread(16667);}
  if(cover)vita2d_free_texture(cover);if(frame)vita2d_free_texture(frame);if(font)vita2d_free_pgf(font);net_term();vita2d_fini();sceKernelExitProcess(0);return 0;}
