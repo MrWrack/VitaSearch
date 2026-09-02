@@ -1,0 +1,81 @@
+name: Build VitaSearch
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - 'vita/**'
+      - '.github/workflows/vita-build.yml'
+  pull_request:
+    paths:
+      - 'vita/**'
+      - '.github/workflows/vita-build.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vitasearch-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-vpk:
+    name: VitaSDK Release Build
+    runs-on: ubuntu-latest
+    container:
+      image: vitasdk/vitasdk:latest
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install host tools
+        run: |
+          apk add --no-cache \
+            build-base ca-certificates cmake git pkgconf \
+            curl wget tar unzip xz bzip2 patch
+
+      - name: Install Vita libraries
+        run: |
+          vdpm refresh nightly || true
+          vdpm install \
+            zlib \
+            bzip2 \
+            libpng \
+            libjpeg-turbo \
+            freetype \
+            libvita2d \
+            mbedtls \
+            curl
+
+      - name: Show toolchain versions
+        run: |
+          echo "VITASDK=$VITASDK"
+          arm-vita-eabi-gcc --version
+          cmake --version
+          vdpm list | head -100
+
+      - name: Configure VitaSearch
+        working-directory: vita
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build VPK
+        working-directory: vita
+        run: cmake --build build --parallel 2
+
+      - name: Verify VPK exists
+        run: |
+          test -f vita/build/VitaSearch.vpk
+          ls -lh vita/build/VitaSearch.vpk
+
+      - name: Upload VitaSearch VPK
+        uses: actions/upload-artifact@v7
+        with:
+          name: VitaSearch-VPK
+          path: vita/build/VitaSearch.vpk
+          if-no-files-found: error
