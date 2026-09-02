@@ -307,3 +307,12 @@ Removed a duplicated/corrupted fragment after `open_target()` that caused the C
 parser to lose sync and report misleading errors later around `remote_scroll`.
 
 `open_target()` now ends cleanly before `remote_simple()`.
+
+
+## VitaSearch v0.99 RC6 brace fix
+
+Fixed the missing closing brace at the end of `open_target()`. RC5 removed a
+corrupted duplicate tail, but the function still needed its final `}`. Without
+it, the compiler treated later functions as if they were nested inside
+`open_target()`, producing errors such as `invalid storage class for function`
+and `expected declaration or statement at end of input`.
