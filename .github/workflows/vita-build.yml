@@ -67,15 +67,48 @@ jobs:
           # VDPM exits 141 after extraction in this container. Install the
           # official curl-mbedtls release archive directly so the extracted
           # package cannot be left half-committed/rolled back.
-          rm -f /tmp/curl-mbedtls.tar.xz
-          curl -fL --retry 3             https://github.com/vitasdk/packages/releases/download/master/curl-mbedtls.tar.xz             -o /tmp/curl-mbedtls.tar.xz
-          tar -xJf /tmp/curl-mbedtls.tar.xz -C "$VITASDK"
+          rm -rf /tmp/curl-mbedtls-pkg /tmp/curl-mbedtls.tar.xz
+          mkdir -p /tmp/curl-mbedtls-pkg
+          curl -fL --retry 3 \
+            https://github.com/vitasdk/packages/releases/download/master/curl-mbedtls.tar.xz \
+            -o /tmp/curl-mbedtls.tar.xz
+
+          echo "=== curl-mbedtls archive layout ==="
+          tar -tJf /tmp/curl-mbedtls.tar.xz | head -80 || true
+          tar -xJf /tmp/curl-mbedtls.tar.xz -C /tmp/curl-mbedtls-pkg
+
+          # Do not depend on the archive's top-level directory layout.
+          # Locate the actual mbedTLS libcurl archive and copy it to the exact
+          # linker path used by arm-vita-eabi-gcc.
+          MBED_LIBCURL="$(find /tmp/curl-mbedtls-pkg -type f -name libcurl.a -print -quit)"
+          if [ -z "$MBED_LIBCURL" ]; then
+            echo "ERROR: curl-mbedtls archive does not contain libcurl.a"
+            find /tmp/curl-mbedtls-pkg -maxdepth 5 -type f | sort | head -200
+            exit 1
+          fi
+
+          echo "Found mbedTLS libcurl: $MBED_LIBCURL"
+          rm -f "$VITASDK/arm-vita-eabi/lib/libcurl.a"
+          cp -f "$MBED_LIBCURL" "$VITASDK/arm-vita-eabi/lib/libcurl.a"
+
+          # Copy curl headers/pkg-config metadata too when present.
+          CURL_INCLUDE="$(find /tmp/curl-mbedtls-pkg -type d -path '*/include/curl' -print -quit)"
+          if [ -n "$CURL_INCLUDE" ]; then
+            mkdir -p "$VITASDK/arm-vita-eabi/include/curl"
+            cp -a "$CURL_INCLUDE"/. "$VITASDK/arm-vita-eabi/include/curl/"
+          fi
+
+          CURL_PC="$(find /tmp/curl-mbedtls-pkg -type f -name libcurl.pc -print -quit)"
+          if [ -n "$CURL_PC" ]; then
+            mkdir -p "$VITASDK/arm-vita-eabi/lib/pkgconfig"
+            cp -f "$CURL_PC" "$VITASDK/arm-vita-eabi/lib/pkgconfig/libcurl.pc"
+          fi
 
           test -f "$VITASDK/arm-vita-eabi/lib/libcurl.a"
 
-          echo "=== direct curl-mbedtls archive installed ==="
+          echo "=== forced curl-mbedtls libcurl installed ==="
           ls -lh "$VITASDK/arm-vita-eabi/lib/libcurl.a"
-          echo "Using VitaSDK curl-mbedtls package; linker will validate its mbedTLS dependencies."
+          echo "Linker path now points at the archive extracted from curl-mbedtls."
 
       - name: Show toolchain versions
         run: |
