@@ -54,6 +54,7 @@ static int browser_tab_focus=0;
 
 
 static int refresh_frame(void);
+static int network_probe(void);
 
 static const char *keys[]={"1","2","3","4","5","6","7","8","9","0","q","w","e","r","t","y","u","i","o","p","a","s","d","f","g","h","j","k","l",".","z","x","c","v","b","n","m","/","-","_",":","?","&","=","%","+","@","#"," ","<","GO"};
 #define KEY_COUNT ((int)(sizeof(keys)/sizeof(keys[0])))
@@ -251,7 +252,7 @@ static void draw_settings_appearance(void){
 
 static void draw_settings_about(void){
  draw_settings_header("About VitaSearch");
- draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC6");
+ draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC7");
  draw_text(44,142,RGBA8(242,245,244,255),0.68f,"Modern web rendering through Chromium proxy.");
  draw_text(44,180,RGBA8(242,245,244,255),0.68f,"PS Vita native controls + touch.");
  draw_text(44,218,RGBA8(242,245,244,255),0.68f,"Spotify Connect integration.");
@@ -472,9 +473,9 @@ static void spotify_touch(const SceTouchData*t){
  int x=t->report[0].x*960/1920,y=t->report[0].y*544/1088;
  if(!spotify_touch_down){
   if(y>=372&&y<=452){
-   if(x>=250&&x<390){spotify_cmd(proxy,"/spotify/api/previous",NULL);spotify_refresh();}
-   else if(x>=390&&x<570){spotify_cmd(proxy,sp.playing?"/spotify/api/pause":"/spotify/api/play",NULL);spotify_refresh();}
-   else if(x>=570&&x<=710){spotify_cmd(proxy,"/spotify/api/next",NULL);spotify_refresh();}
+   if(x>=250&&x<390){spotify_command(proxy,"previous");spotify_refresh();}
+   else if(x>=390&&x<570){spotify_command(proxy,sp.playing?"pause":"play");spotify_refresh();}
+   else if(x>=570&&x<=710){spotify_command(proxy,"next");spotify_refresh();}
   }
   if(y>=320&&y<=356&&x>=120&&x<=840)spotify_seek_drag=1;
   if(y>=472&&y<=520&&x>=610&&x<=900)spotify_volume_drag=1;
@@ -482,14 +483,12 @@ static void spotify_touch(const SceTouchData*t){
  if(spotify_seek_drag){
   if(x<120)x=120;if(x>840)x=840;
   int target=sp.duration_ms*((x-120)*100/(840-120))/100;
-  char body[96];snprintf(body,sizeof(body),"{\"position_ms\":%d}",target);
-  spotify_cmd(proxy,"/spotify/api/seek",body);sp.progress_ms=target;
+  spotify_seek(proxy,target);sp.progress_ms=target;
  }
  if(spotify_volume_drag){
   if(x<610)x=610;if(x>900)x=900;
   int vol=(x-610)*100/(900-610);
-  char body[64];snprintf(body,sizeof(body),"{\"volume_percent\":%d}",vol);
-  spotify_cmd(proxy,"/spotify/api/volume",body);sp.volume=vol;
+  spotify_volume(proxy,vol);sp.volume=vol;
  }
  spotify_touch_down=1;
 }
