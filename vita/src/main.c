@@ -68,6 +68,7 @@ static int browser_tab_focus=0;
 
 static int refresh_frame(void);
 static int network_probe(void);
+static const char *reconnect_stage_text(void);
 
 static const char *keys[]={"1","2","3","4","5","6","7","8","9","0","q","w","e","r","t","y","u","i","o","p","a","s","d","f","g","h","j","k","l",".","z","x","c","v","b","n","m","/","-","_",":","?","&","=","%","+","@","#"," ","<","GO"};
 #define KEY_COUNT ((int)(sizeof(keys)/sizeof(keys[0])))
@@ -274,7 +275,7 @@ static void draw_settings_appearance(void){
 
 static void draw_settings_about(void){
  draw_settings_header("About VitaSearch");
- draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC35");
+ draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC36");
  draw_text(44,142,RGBA8(242,245,244,255),0.68f,"Modern web rendering through Chromium proxy.");
  draw_text(44,180,RGBA8(242,245,244,255),0.68f,"PS Vita native controls + touch.");
  draw_text(44,218,RGBA8(242,245,244,255),0.68f,"Spotify Connect integration.");

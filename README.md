@@ -589,3 +589,11 @@ RC35:
 - shows the current reconnect stage instead of sitting on `CONNECTING...`;
 - explicitly exits/deletes the Vita reconnect worker on every completion path;
 - keeps the RC33 async/no-freeze reconnect design.
+
+## RC36 reconnect stage prototype compile fix
+
+RC35 added `reconnect_stage_text()` for live reconnect diagnostics, but the
+Network renderer calls it before its definition. C therefore treated the first
+call as an implicit `int` declaration and later rejected the real
+`const char *` definition. RC36 adds the correct forward declaration near the
+other function prototypes. RC35 proxy port/protocol fallback remains intact.
