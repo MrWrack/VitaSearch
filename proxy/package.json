@@ -1,6 +1,6 @@
 {
   "name": "vitasearch-proxy",
-  "version": "0.99.0-rc.13",
+  "version": "0.99.0-rc.14",
   "type": "module",
   "private": true,
   "scripts": {
