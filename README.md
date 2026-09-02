@@ -597,3 +597,10 @@ Network renderer calls it before its definition. C therefore treated the first
 call as an implicit `int` declaration and later rejected the real
 `const char *` definition. RC36 adds the correct forward declaration near the
 other function prototypes. RC35 proxy port/protocol fallback remains intact.
+
+## RC37 manual reconnect + editable proxy address
+
+Automatic reconnect looping is removed. Proxy / HTTPS now has `Edit Proxy URL`.
+Enter the PC's real IPv4 address, e.g. `http://192.168.1.23:8080`. The address
+is saved to `ux0:data/vitasearch/config.txt`. Reconnect then happens only when
+the user explicitly presses X/Triangle/touch.

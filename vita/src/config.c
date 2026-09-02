@@ -2,6 +2,7 @@
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <string.h>
+#include <stdio.h>
 
 #define CFG_DIR "ux0:data/vitasearch"
 #define CFG_FILE CFG_DIR "/config.txt"
@@ -59,4 +60,18 @@ int config_load(char *proxy, size_t proxy_size, char *api_key, size_t key_size, 
     size_t len=(size_t)(e3-line3); if(len>=ca_size) len=ca_size-1; memcpy(ca_file,line3,len); ca_file[len]=0;
   }
   return 0;
+}
+
+int config_save_proxy(const char *proxy, const char *api_key, const char *ca_file) {
+  if (!proxy || !proxy[0]) return -1;
+  sceIoMkdir(CFG_DIR, 0777);
+  int fd = sceIoOpen(CFG_FILE, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+  if (fd < 0) return -1;
+  char buf[1024];
+  int n = snprintf(buf, sizeof(buf), "%s\n%s\n%s\n",
+                   proxy, api_key ? api_key : "", ca_file ? ca_file : "");
+  if (n < 0 || n >= (int)sizeof(buf)) { sceIoClose(fd); return -1; }
+  int wr = sceIoWrite(fd, buf, n);
+  sceIoClose(fd);
+  return wr == n ? 0 : -1;
 }
