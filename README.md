@@ -533,3 +533,10 @@ navigation and proxy-stability changes remain included.
 - Network page uses X for an explicit reconnect/status refresh.
 - Auto reconnect respects the Proxy ON/OFF state.
 - Added a real 128x128 VitaSearch icon as `sce_sys/icon0.png` so the LiveArea bubble is no longer the generic blank bubble.
+
+## VitaSearch v0.99 RC28 indexed LiveArea icon fix
+
+VitaShell error `0x8010113D` during VPK install was caused by the new
+`sce_sys/icon0.png` encoding. PS Vita homebrew LiveArea graphics need a
+compatible 8-bit indexed PNG. RC28 converts the VitaSearch 128x128 bubble icon
+to indexed palette PNG while retaining all RC27 proxy, JavaScript and input fixes.
