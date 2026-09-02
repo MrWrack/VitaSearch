@@ -394,3 +394,13 @@ The GitHub Actions workflow is included already fixed:
 - removes the old `curl` Vita package
 - installs `curl-mbedtls`
 - checks `libcurl.a` for old OpenSSL DES/MD4 references before building
+
+
+## VitaSearch v0.99 RC14 package conflict fix
+
+GitHub Actions reached the intended `curl-mbedtls` install but VDPM reported:
+`curl-mbedtls ... and curl ... are in conflict. Remove curl? [y/N]`.
+
+RC14 removes the non-interactive VDPM environment setting and pipes `yes` to
+the `curl-mbedtls` install, allowing VDPM to confirm replacement of the
+conflicting curl package automatically.
