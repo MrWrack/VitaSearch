@@ -1,12 +1,12 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
-title VitaSearch Spotify Proxy RC48
+title VitaSearch Spotify Proxy RC49
 
 :menu
 cls
 echo =============================================
-echo       VitaSearch Spotify Setup - RC48
+echo       VitaSearch Spotify Setup - RC49
 echo =============================================
 echo.
 echo [1] First setup - install everything
@@ -96,7 +96,7 @@ if not defined VITASEARCH_API_KEY (echo ERROR: VitaSearch API key missing.& paus
 if not defined SPOTIFY_CLIENT_ID (echo ERROR: Spotify Client ID missing.& pause&goto menu)
 set "SPOTIFY_REDIRECT_URI=http://127.0.0.1:8080/spotify/callback"
 echo =============================================
-echo VitaSearch RC48 proxy + Spotify starting
+echo VitaSearch RC49 proxy + Spotify starting
 echo =============================================
 echo Spotify Client ID: !SPOTIFY_CLIENT_ID!
 echo Redirect URI: !SPOTIFY_REDIRECT_URI!

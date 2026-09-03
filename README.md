@@ -637,18 +637,28 @@ If Network shows Proxy/Internet ONLINE but Browser session NOT READY, the health
 ## RC44 smooth D-pad scrolling
 Hold D-pad Up/Down in the browser to scroll continuously. RC44 uses smaller accelerated scroll steps and a combined `/scroll-frame` proxy call so scrolling no longer needs separate scroll and screenshot round trips.
 
-## RC48 Windows proxy manager
+## RC49 Windows proxy manager
 
 `proxy/VitaSearch-Proxy-Manager.bat` now provides one CMD menu for installing requirements, updating npm/Playwright Chromium, configuring the VitaSearch API key and Spotify Client ID, starting the proxy, or showing the PC IPv4 address. Local secrets are stored in `proxy/proxy-settings.cmd`, which is ignored by Git and must not be committed.
 
 
-## RC48 input controls
+## RC49 input controls
 - Left analog stick uses standard Vita controller sampling for reliable mouse movement.
 - X: single press clicks; quick second press at the same position sends a double-click.
 - Touch: single tap clicks; quick second tap at the same position sends a double-click.
 - Two-finger pinch/spread zooms the Chromium page from 50% to 200%.
-- RC45 Proxy Manager is retained and updated to RC48.
+- RC45 Proxy Manager is retained and updated to RC49.
 
 
-## RC48 Spotify CMD
+## RC49 Spotify CMD
 Run `proxy\start-proxy-spotify.bat`. It can install/update dependencies, save the Vita API key and Spotify Client ID locally, start the proxy, show the PC IP, and clear the saved Spotify token. The Spotify Dashboard redirect URI must be exactly `http://127.0.0.1:8080/spotify/callback`. Never enter a Spotify Client Secret into the Vita app.
+
+
+## RC49 search + Spotify connection fix
+
+- Browser search/navigation now runs in a Vita background worker instead of blocking controller/touch rendering.
+- New `/open-frame` proxy endpoint performs bounded navigation and returns the first PNG frame in one request.
+- The browser shows `Loading...` and an explicit error instead of appearing frozen.
+- Spotify CONNECT now uses an asynchronous `/spotify/session-login-frame` route and always logs the login attempt in the PC CMD window.
+- Spotify X, touch CONNECT, and Triangle can start login while disconnected.
+- Proxy and Internet status stay independent from Spotify authentication.

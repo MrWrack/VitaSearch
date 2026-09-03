@@ -58,6 +58,16 @@ static volatile int reconnect_stage=0; /* 0 idle,1 health,2 fallback,3 session,4
 static unsigned char *reconnect_frame_data=NULL;
 static size_t reconnect_frame_size=0;
 
+/* RC49 asynchronous browser navigation/login worker. */
+static volatile int nav_busy=0;
+static volatile int nav_done=0;
+static volatile int nav_result=-1;
+static volatile int nav_kind=0; /* 1 web/search, 2 Spotify login */
+static char nav_target[512]="";
+static unsigned char *nav_frame_data=NULL;
+static size_t nav_frame_size=0;
+static char nav_status[96]="";
+
 static int browser_touch_down=0;
 static unsigned int last_touch_click_us=0;
 static int last_touch_x=-1000,last_touch_y=-1000;
@@ -108,6 +118,50 @@ static int open_target(const char*t){
  snprintf(b,sizeof(b),"{\"session\":\"%s\",\"url\":\"%s\",\"search_engine\":\"%s\",\"use_selected_search\":%s}",
   session,e,search_engine_id(),use_selected_search?"true":"false");
  return post_web("/open",b);
+}
+
+static int nav_worker(SceSize args, void *argp){
+ (void)args;(void)argp;
+ nav_result=-1;nav_frame_data=NULL;nav_frame_size=0;
+ char url[512],body[1152];
+ if(nav_kind==1){
+   char e[768];json_escape(nav_target,e,sizeof(e));
+   snprintf(url,sizeof(url),"%s/open-frame",proxy);
+   snprintf(body,sizeof(body),"{\"session\":\"%s\",\"url\":\"%s\",\"search_engine\":\"%s\",\"use_selected_search\":%s}",session,e,search_engine_id(),use_selected_search?"true":"false");
+ }else{
+   snprintf(url,sizeof(url),"%s/spotify/session-login-frame",proxy);
+   snprintf(body,sizeof(body),"{\"session\":\"%s\"}",session);
+ }
+ NetBuffer b;memset(&b,0,sizeof(b));
+ if(net_post_json(url,body,&b)==0 && b.data && b.size){
+   nav_frame_data=(unsigned char*)b.data;nav_frame_size=b.size;b.data=NULL;b.size=0;nav_result=0;
+ }else nav_result=-1;
+ net_buffer_free(&b);nav_done=1;nav_busy=0;sceKernelExitDeleteThread(0);return 0;
+}
+
+static int start_nav_worker(int kind,const char *target){
+ if(nav_busy)return -1;
+ nav_kind=kind;nav_done=0;nav_result=-1;nav_busy=1;nav_frame_data=NULL;nav_frame_size=0;
+ if(target){strncpy(nav_target,target,sizeof(nav_target)-1);nav_target[sizeof(nav_target)-1]=0;}else nav_target[0]=0;
+ snprintf(nav_status,sizeof(nav_status),kind==2?"Opening Spotify login...":"Loading...");
+ SceUID th=sceKernelCreateThread("VitaSearchNav",nav_worker,0x10000100,0x12000,0,0,NULL);
+ if(th<0){nav_busy=0;snprintf(nav_status,sizeof(nav_status),"Could not start navigation worker");return -1;}
+ if(sceKernelStartThread(th,0,NULL)<0){nav_busy=0;sceKernelDeleteThread(th);snprintf(nav_status,sizeof(nav_status),"Could not start navigation worker");return -1;}
+ return 0;
+}
+
+static void finish_nav_if_ready(void){
+ if(!nav_done)return;nav_done=0;
+ if(nav_result==0 && nav_frame_data && nav_frame_size){
+   vita2d_texture *t=vita2d_load_PNG_buffer(nav_frame_data);
+   free(nav_frame_data);nav_frame_data=NULL;nav_frame_size=0;
+   if(t){if(frame)vita2d_free_texture(frame);frame=t;online=1;browser_session_ok=1;nav_status[0]=0;
+     if(nav_kind==2)snprintf(spotify_notice,sizeof(spotify_notice),"Spotify login opened. Complete sign-in in browser.");
+     return;}
+ }
+ if(nav_frame_data){free(nav_frame_data);nav_frame_data=NULL;nav_frame_size=0;}
+ snprintf(nav_status,sizeof(nav_status),nav_kind==2?"Spotify login failed - check PC CMD":"Page load failed - press Triangle to retry");
+ if(nav_kind==2)snprintf(spotify_notice,sizeof(spotify_notice),"Spotify login failed. Check PC CMD / Client ID.");
 }
 static int remote_simple(const char*p){char b[160];snprintf(b,sizeof(b),"{\"session\":\"%s\"}",session);return post_web(p,b);}
 static int remote_click_count(int x,int y,int count){char b[288];snprintf(b,sizeof(b),"{\"session\":\"%s\",\"x\":%d,\"y\":%d,\"count\":%d}",session,x,y,count);return post_web("/click",b);}
@@ -551,18 +605,9 @@ static void update_cover(void){if(strcmp(last_cover,sp.cover_url)==0)return;strn
 static void spotify_refresh(void){if(spotify_get_state(proxy,&sp)==0)update_cover();}
 static int spotify_login_web(void){
  if(!proxy_enabled){snprintf(spotify_notice,sizeof(spotify_notice),"Proxy is OFF. Enable it in Settings.");return -1;}
- if(!browser_session_ok){
-   if(create_session()!=0){browser_session_ok=0;online=0;snprintf(spotify_notice,sizeof(spotify_notice),net_proxy_ok?"Proxy online, browser session failed.":"Proxy offline. Start proxy and press X again.");return -1;}
-   browser_session_ok=1;online=1;
-   if(javascript_pending&&settings_set_javascript(proxy,session,javascript_enabled)==0)javascript_pending=0;
- }
- char body[192];snprintf(body,sizeof(body),"{\"session\":\"%s\"}",session);
- if(post_web("/spotify/session-login",body)!=0){
-   snprintf(spotify_notice,sizeof(spotify_notice),"Spotify login failed. Check PC CMD / Spotify Client ID.");
-   return -1;
- }
- if(refresh_frame()!=0){snprintf(spotify_notice,sizeof(spotify_notice),"Spotify login opened, waiting for frame...");}
- else spotify_notice[0]=0;
+ if(!browser_session_ok){snprintf(spotify_notice,sizeof(spotify_notice),"Browser session not ready. Network -> Reconnect.");return -1;}
+ if(start_nav_worker(2,NULL)!=0){snprintf(spotify_notice,sizeof(spotify_notice),"Spotify login already starting...");return -1;}
+ snprintf(spotify_notice,sizeof(spotify_notice),"Opening Spotify login...");
  return 0;
 }
 
@@ -597,7 +642,7 @@ static void close_search_keyboard(AppMode *mode,AppMode return_mode,char *input)
 static void submit_search_keyboard(AppMode *mode,AppMode return_mode,char *input){
  strncpy(search_text,input,511);
  search_text[511]=0;
- if(input[0]){open_target(input);refresh_frame();}
+ if(input[0])start_nav_worker(1,input);
  search_keyboard_open=0;
  *mode=return_mode;
 }
@@ -731,6 +776,8 @@ static void draw_browser_chrome(void){
    else snprintf(ns,sizeof(ns),"Proxy offline");
    draw_text(790,64,nc,0.54f,ns);
  }
+ if(nav_busy){vita2d_draw_rectangle(330,92,300,38,RGBA8(8,18,14,225));draw_text(390,118,RGBA8(35,235,110,255),0.68f,nav_status[0]?nav_status:"Loading...");}
+ else if(nav_status[0]){vita2d_draw_rectangle(270,92,420,38,RGBA8(28,20,12,225));draw_text(300,118,RGBA8(235,180,80,255),0.62f,nav_status);}
 }
 
 static void browser_touch(const SceTouchData *td, AppMode *mode, AppMode *return_mode, char *input, int *keysel){
@@ -871,7 +918,7 @@ int main(void){sceSysmoduleLoadModule(SCE_SYSMODULE_NET);sceSysmoduleLoadModule(
  if(online){network_probe();refresh_spotify_status();}
  snprintf(browser_tabs[0].title,sizeof(browser_tabs[0].title),"Start");if(online){refresh_frame();spotify_refresh();}
  AppMode return_mode=MODE_WEB;unsigned int old=0;int counter=0,keysel=0;char input[INPUT_MAX+1]="";
- for(;;){finish_reconnect_if_ready();SceCtrlData pad;sceCtrlPeekBufferPositive(0,&pad,1);unsigned int pressed=pad.buttons&~old;old=pad.buttons;if((pad.buttons&SCE_CTRL_START)&&(pad.buttons&SCE_CTRL_SELECT))break;
+ for(;;){finish_reconnect_if_ready();finish_nav_if_ready();SceCtrlData pad;sceCtrlPeekBufferPositive(0,&pad,1);unsigned int pressed=pad.buttons&~old;old=pad.buttons;if((pad.buttons&SCE_CTRL_START)&&(pad.buttons&SCE_CTRL_SELECT))break;
   if(mode==MODE_KEYBOARD){int row=keysel/KEY_COLS,col=keysel%KEY_COLS;if(pressed&SCE_CTRL_LEFT)col=(col+9)%10;if(pressed&SCE_CTRL_RIGHT)col=(col+1)%10;if(pressed&SCE_CTRL_UP)row=row>0?row-1:5;if(pressed&SCE_CTRL_DOWN)row=row<5?row+1:0;keysel=row*10+col;if(keysel>=KEY_COUNT)keysel=KEY_COUNT-1;if(pressed&SCE_CTRL_CIRCLE){if(keyboard_purpose==2||keyboard_purpose==3){keyboard_purpose=0;search_keyboard_open=0;mode=return_mode;}else if(return_mode==MODE_WEB)close_search_keyboard(&mode,return_mode,input);else mode=return_mode;}else if(pressed&SCE_CTRL_TRIANGLE){if(keyboard_purpose==2)submit_proxy_keyboard(return_mode,input);else if(keyboard_purpose==3)submit_api_key_keyboard(return_mode,input);else if(return_mode==MODE_WEB)submit_search_keyboard(&mode,return_mode,input);else{if(input[0]){result_count=spotify_search(proxy,input,results,RESULT_MAX);result_selected=0;search_view=1;spotify_refresh();}mode=return_mode;}}else if(pressed&SCE_CTRL_CROSS){if(keysel==KEY_COUNT-1){if(keyboard_purpose==2)submit_proxy_keyboard(return_mode,input);else if(keyboard_purpose==3)submit_api_key_keyboard(return_mode,input);else if(return_mode==MODE_WEB)submit_search_keyboard(&mode,return_mode,input);else{if(input[0]){result_count=spotify_search(proxy,input,results,RESULT_MAX);result_selected=0;search_view=1;spotify_refresh();}mode=return_mode;}}else if(!strcmp(keys[keysel],"<")){size_t n=strlen(input);if(n)input[n-1]=0;}else append_input(input,keys[keysel]);}if(mode==MODE_KEYBOARD){SceTouchData ktd;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&ktd,1);keyboard_touch_input(&ktd,&mode,return_mode,input,&keysel);}}
   else if(mode==MODE_WEB){if(pressed&SCE_CTRL_START){mode=MODE_SPOTIFY;if(online)spotify_refresh();}else if(pressed&SCE_CTRL_SELECT){mode=MODE_SETTINGS;settings_page=0;settings_selected=0;settings_status[0]=0;}else if(!online){
  if(pressed&SCE_CTRL_SELECT){open_settings_root();}
@@ -900,11 +947,11 @@ int main(void){sceSysmoduleLoadModule(SCE_SYSMODULE_NET);sceSysmoduleLoadModule(
  cursor_fx+=cursor_vx; cursor_fy+=cursor_vy;
  if(cursor_fx<0)cursor_fx=0;if(cursor_fx>959)cursor_fx=959;
  if(cursor_fy<82)cursor_fy=82;if(cursor_fy>467)cursor_fy=467;
- cursor_x=(int)(cursor_fx+0.5f);cursor_y=(int)(cursor_fy+0.5f);/* RC44: Up/Down scroll while HELD, with smaller accelerated steps and a single scroll+frame request. */int scroll_dir=0;if(pad.buttons&SCE_CTRL_UP)scroll_dir=-1;else if(pad.buttons&SCE_CTRL_DOWN)scroll_dir=1;if(scroll_dir){if(scroll_hold_dir!=scroll_dir){scroll_hold_dir=scroll_dir;scroll_hold_ticks=0;}scroll_hold_ticks++;int step=(scroll_hold_ticks<7)?46:((scroll_hold_ticks<18)?70:100);remote_scroll_frame(scroll_dir*step);}else{scroll_hold_dir=0;scroll_hold_ticks=0;}if(pressed&SCE_CTRL_LEFT&&browser_tab_count>1){int ni=browser_tab_active-1;if(ni<0)ni=browser_tab_count-1;tab_select(ni);}if(pressed&SCE_CTRL_RIGHT&&browser_tab_count>1){int ni=(browser_tab_active+1)%browser_tab_count;tab_select(ni);}if(pressed&SCE_CTRL_CROSS){unsigned int now=sceKernelGetProcessTimeLow();int ddx=cursor_x-last_x_click_x,ddy=cursor_y-last_x_click_y;int dbl=(last_x_click_us!=0&&(unsigned int)(now-last_x_click_us)<360000U&&(ddx*ddx+ddy*ddy)<900);remote_click_count(cursor_x,cursor_y,dbl?2:1);last_x_click_us=now;last_x_click_x=cursor_x;last_x_click_y=cursor_y;refresh_frame();}if(pressed&SCE_CTRL_LTRIGGER){remote_simple("/back");refresh_frame();}if(pressed&SCE_CTRL_RTRIGGER){remote_simple("/forward");refresh_frame();}if(pressed&SCE_CTRL_SQUARE){open_search_keyboard(&mode,&return_mode,input,&keysel);}if(pressed&SCE_CTRL_TRIANGLE){if(search_text[0]){open_target(search_text);refresh_frame();}else open_search_keyboard(&mode,&return_mode,input,&keysel);}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);browser_touch(&td,&mode,&return_mode,input,&keysel);/* RC43: stagger blocking HTTP refreshes so the pointer does not freeze every ~2s. */
-if(++counter==120){refresh_frame();}
+ cursor_x=(int)(cursor_fx+0.5f);cursor_y=(int)(cursor_fy+0.5f);/* RC44: Up/Down scroll while HELD, with smaller accelerated steps and a single scroll+frame request. */int scroll_dir=0;if(pad.buttons&SCE_CTRL_UP)scroll_dir=-1;else if(pad.buttons&SCE_CTRL_DOWN)scroll_dir=1;if(scroll_dir){if(scroll_hold_dir!=scroll_dir){scroll_hold_dir=scroll_dir;scroll_hold_ticks=0;}scroll_hold_ticks++;int step=(scroll_hold_ticks<7)?46:((scroll_hold_ticks<18)?70:100);remote_scroll_frame(scroll_dir*step);}else{scroll_hold_dir=0;scroll_hold_ticks=0;}if(pressed&SCE_CTRL_LEFT&&browser_tab_count>1){int ni=browser_tab_active-1;if(ni<0)ni=browser_tab_count-1;tab_select(ni);}if(pressed&SCE_CTRL_RIGHT&&browser_tab_count>1){int ni=(browser_tab_active+1)%browser_tab_count;tab_select(ni);}if(pressed&SCE_CTRL_CROSS){unsigned int now=sceKernelGetProcessTimeLow();int ddx=cursor_x-last_x_click_x,ddy=cursor_y-last_x_click_y;int dbl=(last_x_click_us!=0&&(unsigned int)(now-last_x_click_us)<360000U&&(ddx*ddx+ddy*ddy)<900);remote_click_count(cursor_x,cursor_y,dbl?2:1);last_x_click_us=now;last_x_click_x=cursor_x;last_x_click_y=cursor_y;refresh_frame();}if(pressed&SCE_CTRL_LTRIGGER){remote_simple("/back");refresh_frame();}if(pressed&SCE_CTRL_RTRIGGER){remote_simple("/forward");refresh_frame();}if(pressed&SCE_CTRL_SQUARE){open_search_keyboard(&mode,&return_mode,input,&keysel);}if(pressed&SCE_CTRL_TRIANGLE){if(search_text[0])start_nav_worker(1,search_text);else open_search_keyboard(&mode,&return_mode,input,&keysel);}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);browser_touch(&td,&mode,&return_mode,input,&keysel);/* RC49: do not run periodic blocking requests while navigation worker owns the page. */
+if(!nav_busy){if(++counter==120){refresh_frame();}
 else if(counter==150){spotify_refresh();}
 else if(counter==180){network_probe();}
-else if(counter>=210){refresh_spotify_status();counter=0;}}}
+else if(counter>=210){refresh_spotify_status();counter=0;}}}}
   else if(mode==MODE_SETTINGS){if(pressed&SCE_CTRL_CIRCLE){if(settings_page){settings_page=0;settings_selected=0;settings_status[0]=0;}else mode=MODE_WEB;}else{int scount=settings_page==0?SETTINGS_CATEGORY_COUNT:(settings_page==5?CLEAR_COUNT:(settings_page==6?3:(settings_page==2?2:1)));if(pressed&SCE_CTRL_UP&&settings_selected>0)settings_selected--;if(pressed&SCE_CTRL_DOWN&&settings_selected+1<scount)settings_selected++;if(pressed&SCE_CTRL_CROSS){if(settings_page==6&&settings_selected==1)open_proxy_keyboard(&return_mode,input,&keysel);else if(settings_page==6&&settings_selected==2)open_api_key_keyboard(&return_mode,input,&keysel);else settings_action();}if((pressed&SCE_CTRL_TRIANGLE)&&settings_page==3)reconnect_refresh();if((pressed&SCE_CTRL_LEFT||pressed&SCE_CTRL_RIGHT)&&(settings_page==1||settings_page==2||(settings_page==6&&settings_selected==0)))settings_action();
 SceTouchData std;memset(&std,0,sizeof(std));sceTouchPeek(SCE_TOUCH_PORT_FRONT,&std,1);
 static int settings_touch_down=0;
@@ -915,7 +962,7 @@ if(settings_page==3&&touch_now&&!settings_touch_down){
  if(tx>=34&&tx<=926&&ty>=72&&ty<=130)reconnect_refresh();
 }
 settings_touch_down=touch_now;}}
-  else {if(pressed&SCE_CTRL_START){mode=MODE_WEB;}else if(!sp.connected){if(pressed&SCE_CTRL_CIRCLE){mode=MODE_WEB;}else if(pressed&SCE_CTRL_SELECT){mode=MODE_SETTINGS;settings_page=0;settings_selected=0;}else if(pressed&SCE_CTRL_CROSS){if(spotify_login_web()==0)mode=MODE_WEB;}SceTouchData ctd;memset(&ctd,0,sizeof(ctd));sceTouchPeek(SCE_TOUCH_PORT_FRONT,&ctd,1);static int spotify_connect_touch_down=0;int cdown=ctd.reportNum>0;if(cdown&&!spotify_connect_touch_down){int tx=ctd.report[0].x*960/1919;int ty=ctd.report[0].y*544/1087;if(tx>=320&&tx<=640&&ty>=270&&ty<=360){if(spotify_login_web()==0)mode=MODE_WEB;}}spotify_connect_touch_down=cdown;}else if(search_view){if(pressed&SCE_CTRL_UP&&result_selected>0)result_selected--;if(pressed&SCE_CTRL_DOWN&&result_selected+1<result_count)result_selected++;if(pressed&SCE_CTRL_CROSS&&result_count){spotify_play_uri(proxy,results[result_selected].uri);search_view=0;spotify_refresh();}if(pressed&SCE_CTRL_SELECT&&result_count)spotify_queue_uri(proxy,results[result_selected].uri);if(pressed&SCE_CTRL_CIRCLE)search_view=0;if(pressed&SCE_CTRL_TRIANGLE){return_mode=MODE_SPOTIFY;mode=MODE_KEYBOARD;input[0]=0;keysel=0;}}else{if(pressed&SCE_CTRL_LEFT){spotify_control_selected=(spotify_control_selected+2)%3;}if(pressed&SCE_CTRL_RIGHT){spotify_control_selected=(spotify_control_selected+1)%3;}if(pressed&SCE_CTRL_CROSS){if(spotify_control_selected==0)spotify_command(proxy,"previous");else if(spotify_control_selected==1)spotify_command(proxy,sp.playing?"pause":"play");else spotify_command(proxy,"next");spotify_refresh();}if(pressed&SCE_CTRL_LTRIGGER){spotify_command(proxy,"previous");spotify_refresh();}if(pressed&SCE_CTRL_RTRIGGER){spotify_command(proxy,"next");spotify_refresh();}if(pressed&SCE_CTRL_UP){spotify_volume(proxy,sp.volume+5);spotify_refresh();}if(pressed&SCE_CTRL_DOWN){spotify_volume(proxy,sp.volume-5);spotify_refresh();}if(pressed&SCE_CTRL_SQUARE)spotify_refresh();if(pressed&SCE_CTRL_TRIANGLE){return_mode=MODE_SPOTIFY;mode=MODE_KEYBOARD;input[0]=0;keysel=0;}if(pressed&SCE_CTRL_SELECT){if(spotify_login_web()==0)mode=MODE_WEB;}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);spotify_touch(&td);if(++counter>=180){spotify_refresh();counter=0;}}}
+  else {if(pressed&SCE_CTRL_START){mode=MODE_WEB;}else if(!sp.connected){if(pressed&SCE_CTRL_CIRCLE){mode=MODE_WEB;}else if(pressed&SCE_CTRL_SELECT){mode=MODE_SETTINGS;settings_page=0;settings_selected=0;}else if(pressed&SCE_CTRL_CROSS){if(spotify_login_web()==0)mode=MODE_WEB;}else if(pressed&SCE_CTRL_TRIANGLE){if(spotify_login_web()==0)mode=MODE_WEB;}SceTouchData ctd;memset(&ctd,0,sizeof(ctd));sceTouchPeek(SCE_TOUCH_PORT_FRONT,&ctd,1);static int spotify_connect_touch_down=0;int cdown=ctd.reportNum>0;if(cdown&&!spotify_connect_touch_down){int tx=ctd.report[0].x*960/1919;int ty=ctd.report[0].y*544/1087;if(tx>=320&&tx<=640&&ty>=270&&ty<=360){if(spotify_login_web()==0)mode=MODE_WEB;}}spotify_connect_touch_down=cdown;}else if(search_view){if(pressed&SCE_CTRL_UP&&result_selected>0)result_selected--;if(pressed&SCE_CTRL_DOWN&&result_selected+1<result_count)result_selected++;if(pressed&SCE_CTRL_CROSS&&result_count){spotify_play_uri(proxy,results[result_selected].uri);search_view=0;spotify_refresh();}if(pressed&SCE_CTRL_SELECT&&result_count)spotify_queue_uri(proxy,results[result_selected].uri);if(pressed&SCE_CTRL_CIRCLE)search_view=0;if(pressed&SCE_CTRL_TRIANGLE){return_mode=MODE_SPOTIFY;mode=MODE_KEYBOARD;input[0]=0;keysel=0;}}else{if(pressed&SCE_CTRL_LEFT){spotify_control_selected=(spotify_control_selected+2)%3;}if(pressed&SCE_CTRL_RIGHT){spotify_control_selected=(spotify_control_selected+1)%3;}if(pressed&SCE_CTRL_CROSS){if(spotify_control_selected==0)spotify_command(proxy,"previous");else if(spotify_control_selected==1)spotify_command(proxy,sp.playing?"pause":"play");else spotify_command(proxy,"next");spotify_refresh();}if(pressed&SCE_CTRL_LTRIGGER){spotify_command(proxy,"previous");spotify_refresh();}if(pressed&SCE_CTRL_RTRIGGER){spotify_command(proxy,"next");spotify_refresh();}if(pressed&SCE_CTRL_UP){spotify_volume(proxy,sp.volume+5);spotify_refresh();}if(pressed&SCE_CTRL_DOWN){spotify_volume(proxy,sp.volume-5);spotify_refresh();}if(pressed&SCE_CTRL_SQUARE)spotify_refresh();if(pressed&SCE_CTRL_TRIANGLE){return_mode=MODE_SPOTIFY;mode=MODE_KEYBOARD;input[0]=0;keysel=0;}if(pressed&SCE_CTRL_SELECT){if(spotify_login_web()==0)mode=MODE_WEB;}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);spotify_touch(&td);if(++counter>=180){spotify_refresh();counter=0;}}}
   vita2d_start_drawing();vita2d_clear_screen();if(mode==MODE_KEYBOARD){keyboard_draw(input,keysel,keyboard_purpose==2?"Edit Proxy URL":(keyboard_purpose==3?"Edit API Key":(return_mode==MODE_SPOTIFY?"Spotify search":"Address / Google search")));}else if(mode==MODE_SPOTIFY){draw_spotify();if(sp.connected)draw_spotify_touch_controls();}else if(mode==MODE_SETTINGS){draw_settings();}else if(frame){vita2d_draw_texture(frame,0,0);draw_browser_chrome();vita2d_draw_rectangle(cursor_x-6,cursor_y-1,13,3,RGBA8(20,255,120,255));vita2d_draw_rectangle(cursor_x-1,cursor_y-6,3,13,RGBA8(20,255,120,255));draw_mini_player();}else{
  draw_text(245,205,RGBA8(242,245,244,255),0.80f,proxy_enabled?(net_proxy_ok?"Proxy ONLINE - browser session not ready":reconnect_stage_text()):"Proxy is OFF");
  vita2d_draw_rectangle(250,245,460,80,RGBA8(35,235,110,255));

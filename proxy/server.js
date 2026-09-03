@@ -381,10 +381,35 @@ app.post('/open', requireKey, async (req, res) => {
     const isSearch = raw && !/^https?:\/\//i.test(raw) && !/^[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(raw);
     if (isSearch) { searchHistory.unshift({ q: raw.slice(0, 256), at: Date.now() }); if (searchHistory.length > SEARCH_HISTORY_MAX) searchHistory.length = SEARCH_HISTORY_MAX; }
     const url = normalizeTarget(raw, req.body?.search_engine || 'google', req.body?.use_selected_search !== false); await assertSafeUrl(url);
-    await s.page.goto(url, { waitUntil: 'domcontentloaded' });
-    res.json({ ok: true, session: s.id, url: s.page.url(), title: await s.page.title(), javascriptEnabled: s.javascriptEnabled });
+    try { await s.page.goto(url, { waitUntil: 'commit', timeout: 5500 }); } catch (e) { console.warn('[open] navigation warning:', String(e?.message || e)); }
+    await s.page.waitForTimeout(250).catch(()=>{});
+    res.json({ ok: true, session: s.id, url: s.page.url(), title: await s.page.title().catch(()=>''), javascriptEnabled: s.javascriptEnabled });
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
 });
+
+
+/* RC49: bounded navigation + screenshot in one request.  The Vita runs this
+   from a worker thread so slow websites never freeze controller/touch input. */
+app.post('/open-frame', requireKey, async (req, res) => {
+  try {
+    const s = await session(req);
+    const raw = String(req.body?.url || '').trim();
+    const isSearch = raw && !/^https?:\/\//i.test(raw) && !/^[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(raw);
+    if (isSearch) { searchHistory.unshift({ q: raw.slice(0, 256), at: Date.now() }); if (searchHistory.length > SEARCH_HISTORY_MAX) searchHistory.length = SEARCH_HISTORY_MAX; }
+    const url = normalizeTarget(raw, req.body?.search_engine || 'google', req.body?.use_selected_search !== false);
+    await assertSafeUrl(url);
+    console.log('[open-frame]', raw.slice(0,120), '->', url.slice(0,180));
+    try { await s.page.goto(url, { waitUntil: 'commit', timeout: 5500 }); }
+    catch (e) { console.warn('[open-frame] navigation warning:', String(e?.message || e)); }
+    await s.page.waitForTimeout(350).catch(()=>{});
+    const png = await s.page.screenshot({type:'png'});
+    res.type('png').set('X-VitaSearch-Session', s.id).send(png);
+  } catch (e) {
+    console.warn('[open-frame] failed:', String(e?.message || e));
+    res.status(500).json({ok:false,error:String(e?.message || e)});
+  }
+});
+
 app.post('/click', requireKey, async (req, res) => {
   try { const s = await session(req); const x=Math.max(0,Math.min(WIDTH-1,Number(req.body?.x||0))); const y=Math.max(0,Math.min(HEIGHT-1,Number(req.body?.y||0))); const count=Math.max(1,Math.min(2,Number(req.body?.count||1))); await s.page.mouse.click(x,y,{clickCount:count,delay:35}); await s.page.waitForTimeout(120); res.json({ok:true,session:s.id,url:s.page.url(),title:await s.page.title(),clickCount:count}); }
   catch(e){res.status(500).json({ok:false,error:String(e)});}
@@ -488,11 +513,32 @@ app.post('/spotify/session-login', requireKey, async (req,res) => {
   try {
     const s = await session(req);
     const authUrl = createSpotifyAuthorizationUrl();
-    await s.page.goto(authUrl, { waitUntil:'domcontentloaded', timeout:30000 });
+    console.log('[spotify] login requested for session', s.id);
+    await s.page.goto(authUrl, { waitUntil:'commit', timeout:8000 });
     console.log('[spotify] login page opened in session', s.id);
     res.json({ok:true,session:s.id,url:s.page.url()});
   } catch (e) {
     console.warn('[spotify] session-login failed:', String(e?.message || e));
+    res.status(400).json({ok:false,error:String(e?.message || e || 'spotify_login_failed')});
+  }
+});
+
+
+
+/* RC49: login navigation and first frame in one bounded request. */
+app.post('/spotify/session-login-frame', requireKey, async (req,res) => {
+  try {
+    const s = await session(req);
+    const authUrl = createSpotifyAuthorizationUrl();
+    console.log('[spotify] login-frame requested for session', s.id);
+    try { await s.page.goto(authUrl, { waitUntil:'commit', timeout:8000 }); }
+    catch (e) { console.warn('[spotify] login navigation warning:', String(e?.message || e)); }
+    await s.page.waitForTimeout(350).catch(()=>{});
+    const png = await s.page.screenshot({type:'png'});
+    console.log('[spotify] login frame ready for session', s.id);
+    res.type('png').send(png);
+  } catch (e) {
+    console.warn('[spotify] login-frame failed:', String(e?.message || e));
     res.status(400).json({ok:false,error:String(e?.message || e || 'spotify_login_failed')});
   }
 });
