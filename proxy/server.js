@@ -81,8 +81,10 @@ function safeEqual(a,b){
 function requestKey(req){ return String(req.get('X-VitaSearch-Key') || req.query?.key || ''); }
 function requireKey(req,res,next){
   if (!API_KEY || safeEqual(requestKey(req), API_KEY)) return next();
+  console.warn(`[auth] rejected ${req.method} ${req.path}: missing/wrong X-VitaSearch-Key`);
   return res.status(401).json({ok:false,error:'Unauthorized'});
 }
+
 function isPrivateIp(ip){
   if (!ip) return true;
   if (ip.startsWith('::ffff:')) ip=ip.slice(7);
@@ -285,6 +287,7 @@ app.get('/health', async (req, res) => {
 });
 
 app.post('/session', requireKey, async (req, res) => {
+  console.log('[session] create request accepted');
   try {
     const s = await createSession();
     return res.json({ ok: true, session: s.id, javascriptEnabled: s.javascriptEnabled !== false });

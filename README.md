@@ -611,6 +611,10 @@ the user explicitly presses X/Triangle/touch.
 RC38 tracks Proxy, Internet, Browser session, and Spotify independently. A failed browser session or frame no longer rewrites a healthy proxy connection as OFFLINE. The Network page shows each state separately, and the browser chrome distinguishes `Proxy online / No session` from a true proxy outage.
 
 
-## RC39 browser session creation fix
+## RC40 browser session creation fix
 
-RC39 restores the authenticated `POST /session` endpoint expected by the Vita client. RC38 could report `Proxy ONLINE / Browser session NOT READY` because `/health` worked while the proxy had no `/session` route. The new endpoint creates a Playwright browser context/session and returns the session id used by `/open`, `/frame`, tabs, input, and settings routes.
+RC40 restores the authenticated `POST /session` endpoint expected by the Vita client. RC38 could report `Proxy ONLINE / Browser session NOT READY` because `/health` worked while the proxy had no `/session` route. The new endpoint creates a Playwright browser context/session and returns the session id used by `/open`, `/frame`, tabs, input, and settings routes.
+
+
+## RC40 API key fix
+If Network shows Proxy/Internet ONLINE but Browser session NOT READY, the health endpoint is reachable while the protected browser endpoints may be rejecting the Vita API key. Set the same lowercase API key on PC and in VitaSearch Settings -> Proxy / HTTPS -> Edit API Key, then reconnect.
