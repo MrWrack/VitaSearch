@@ -19,6 +19,7 @@
 #define SCREEN_H 544
 #define INPUT_MAX 255
 #define RESULT_MAX 8
+#define VITASEARCH_RELEASE "VitaSearch v0.99 RC52"
 
 typedef enum { MODE_WEB=0, MODE_SPOTIFY=1, MODE_KEYBOARD=2, MODE_SETTINGS=3 } AppMode;
 static AppMode mode=MODE_WEB;
@@ -364,7 +365,7 @@ static void draw_settings_appearance(void){
 
 static void draw_settings_about(void){
  draw_settings_header("About VitaSearch");
- draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC45");
+ draw_text(44,92,RGBA8(35,235,110,255),0.90f,VITASEARCH_RELEASE);
  draw_text(44,142,RGBA8(242,245,244,255),0.68f,"Modern web rendering through Chromium proxy.");
  draw_text(44,180,RGBA8(242,245,244,255),0.68f,"PS Vita native controls + touch.");
  draw_text(44,218,RGBA8(242,245,244,255),0.68f,"Spotify Connect integration.");
@@ -947,7 +948,7 @@ int main(void){sceSysmoduleLoadModule(SCE_SYSMODULE_NET);sceSysmoduleLoadModule(
  cursor_fx+=cursor_vx; cursor_fy+=cursor_vy;
  if(cursor_fx<0)cursor_fx=0;if(cursor_fx>959)cursor_fx=959;
  if(cursor_fy<82)cursor_fy=82;if(cursor_fy>467)cursor_fy=467;
- cursor_x=(int)(cursor_fx+0.5f);cursor_y=(int)(cursor_fy+0.5f);/* RC44: Up/Down scroll while HELD, with smaller accelerated steps and a single scroll+frame request. */int scroll_dir=0;if(pad.buttons&SCE_CTRL_UP)scroll_dir=-1;else if(pad.buttons&SCE_CTRL_DOWN)scroll_dir=1;if(scroll_dir){if(scroll_hold_dir!=scroll_dir){scroll_hold_dir=scroll_dir;scroll_hold_ticks=0;}scroll_hold_ticks++;int step=(scroll_hold_ticks<7)?46:((scroll_hold_ticks<18)?70:100);remote_scroll_frame(scroll_dir*step);}else{scroll_hold_dir=0;scroll_hold_ticks=0;}if(pressed&SCE_CTRL_LEFT&&browser_tab_count>1){int ni=browser_tab_active-1;if(ni<0)ni=browser_tab_count-1;tab_select(ni);}if(pressed&SCE_CTRL_RIGHT&&browser_tab_count>1){int ni=(browser_tab_active+1)%browser_tab_count;tab_select(ni);}if(pressed&SCE_CTRL_CROSS){unsigned int now=sceKernelGetProcessTimeLow();int ddx=cursor_x-last_x_click_x,ddy=cursor_y-last_x_click_y;int dbl=(last_x_click_us!=0&&(unsigned int)(now-last_x_click_us)<360000U&&(ddx*ddx+ddy*ddy)<900);remote_click_count(cursor_x,cursor_y,dbl?2:1);last_x_click_us=now;last_x_click_x=cursor_x;last_x_click_y=cursor_y;refresh_frame();}if(pressed&SCE_CTRL_LTRIGGER){remote_simple("/back");refresh_frame();}if(pressed&SCE_CTRL_RTRIGGER){remote_simple("/forward");refresh_frame();}if(pressed&SCE_CTRL_SQUARE){open_search_keyboard(&mode,&return_mode,input,&keysel);}if(pressed&SCE_CTRL_TRIANGLE){if(search_text[0])start_nav_worker(1,search_text);else open_search_keyboard(&mode,&return_mode,input,&keysel);}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);browser_touch(&td,&mode,&return_mode,input,&keysel);/* RC51: Never perform periodic network I/O in the WEB input/render loop.
+ cursor_x=(int)(cursor_fx+0.5f);cursor_y=(int)(cursor_fy+0.5f);/* RC44: Up/Down scroll while HELD, with smaller accelerated steps and a single scroll+frame request. */int scroll_dir=0;if(pad.buttons&SCE_CTRL_UP)scroll_dir=-1;else if(pad.buttons&SCE_CTRL_DOWN)scroll_dir=1;if(scroll_dir){if(scroll_hold_dir!=scroll_dir){scroll_hold_dir=scroll_dir;scroll_hold_ticks=0;}scroll_hold_ticks++;int step=(scroll_hold_ticks<7)?46:((scroll_hold_ticks<18)?70:100);remote_scroll_frame(scroll_dir*step);}else{scroll_hold_dir=0;scroll_hold_ticks=0;}if(pressed&SCE_CTRL_LEFT&&browser_tab_count>1){int ni=browser_tab_active-1;if(ni<0)ni=browser_tab_count-1;tab_select(ni);}if(pressed&SCE_CTRL_RIGHT&&browser_tab_count>1){int ni=(browser_tab_active+1)%browser_tab_count;tab_select(ni);}if(pressed&SCE_CTRL_CROSS){unsigned int now=sceKernelGetProcessTimeLow();int ddx=cursor_x-last_x_click_x,ddy=cursor_y-last_x_click_y;int dbl=(last_x_click_us!=0&&(unsigned int)(now-last_x_click_us)<360000U&&(ddx*ddx+ddy*ddy)<900);remote_click_count(cursor_x,cursor_y,dbl?2:1);last_x_click_us=now;last_x_click_x=cursor_x;last_x_click_y=cursor_y;refresh_frame();}if(pressed&SCE_CTRL_LTRIGGER){remote_simple("/back");refresh_frame();}if(pressed&SCE_CTRL_RTRIGGER){remote_simple("/forward");refresh_frame();}if(pressed&SCE_CTRL_SQUARE){open_search_keyboard(&mode,&return_mode,input,&keysel);}if(pressed&SCE_CTRL_TRIANGLE){if(search_text[0])start_nav_worker(1,search_text);else open_search_keyboard(&mode,&return_mode,input,&keysel);}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);browser_touch(&td,&mode,&return_mode,input,&keysel);/* RC52: Never perform periodic network I/O in the WEB input/render loop.
    refresh_frame/network_probe/Spotify HTTP can block for hundreds of ms or seconds,
    which made the local L-stick cursor appear to freeze. Frames are refreshed only
    after explicit browser actions/navigation workers; status refresh happens outside
