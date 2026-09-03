@@ -1,0 +1,9 @@
+node_modules/
+spotify-token.json
+.env
+*.pem
+*.key
+*.crt
+certs/
+
+proxy-settings.cmd
