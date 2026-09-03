@@ -410,6 +410,35 @@ app.post('/open-frame', requireKey, async (req, res) => {
   }
 });
 
+
+// RC53: click/focus bridge for Vita OSK. Editable HTML controls return their current value;
+// non-editable targets are clicked normally so X/touch still behave like a mouse.
+app.post('/focus-click', requireKey, async (req,res)=>{
+  try{
+    const s=await session(req);const page=s.page;
+    const x=Math.max(0,Math.min(WIDTH-1,Number(req.body?.x||0)));const y=Math.max(0,Math.min(HEIGHT-1,Number(req.body?.y||0)));
+    const info=await page.evaluate(({x,y})=>{
+      let el=document.elementFromPoint(x,y);if(!el)return {editable:false};
+      const tag=(el.tagName||'').toLowerCase();const type=String(el.type||'').toLowerCase();
+      const editable=(tag==='textarea')||(tag==='input'&&!['button','submit','checkbox','radio','range','color','file','image','reset'].includes(type))||el.isContentEditable;
+      if(editable){el.focus();let value='';if(el.isContentEditable)value=el.innerText||'';else value=String(el.value||'');return {editable:true,value,type:el.isContentEditable?'contenteditable':type||tag};}
+      return {editable:false};
+    },{x,y});
+    if(!info.editable){await page.mouse.click(x,y,{delay:35});await page.waitForTimeout(90);}
+    res.json({ok:true,session:s.id,...info});
+  }catch(e){res.status(500).json({ok:false,error:String(e)});}
+});
+
+app.post('/input-set-frame', requireKey, async(req,res)=>{
+  try{
+    const s=await session(req);const page=s.page;const text=String(req.body?.text??'');const submit=req.body?.submit!==false;
+    const ok=await page.evaluate((text)=>{const el=document.activeElement;if(!el)return false;const tag=(el.tagName||'').toLowerCase();if(el.isContentEditable){el.innerText=text;el.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:text}));return true;}if(tag==='input'||tag==='textarea'){const proto=tag==='input'?HTMLInputElement.prototype:HTMLTextAreaElement.prototype;const setter=Object.getOwnPropertyDescriptor(proto,'value')?.set;if(setter)setter.call(el,text);else el.value=text;el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));return true;}return false;},text);
+    if(!ok)return res.status(400).json({ok:false,error:'Focused element is not editable'});
+    if(submit){await page.keyboard.press('Enter').catch(()=>{});await page.waitForTimeout(350).catch(()=>{});}else await page.waitForTimeout(80).catch(()=>{});
+    const png=await page.screenshot({type:'png'});res.set('X-VitaSearch-Session',s.id);res.type('png').send(png);
+  }catch(e){res.status(500).json({ok:false,error:String(e)});}
+});
+
 app.post('/click', requireKey, async (req, res) => {
   try { const s = await session(req); const x=Math.max(0,Math.min(WIDTH-1,Number(req.body?.x||0))); const y=Math.max(0,Math.min(HEIGHT-1,Number(req.body?.y||0))); const count=Math.max(1,Math.min(2,Number(req.body?.count||1))); await s.page.mouse.click(x,y,{clickCount:count,delay:35}); await s.page.waitForTimeout(120); res.json({ok:true,session:s.id,url:s.page.url(),title:await s.page.title(),clickCount:count}); }
   catch(e){res.status(500).json({ok:false,error:String(e)});}

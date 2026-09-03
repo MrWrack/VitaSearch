@@ -637,24 +637,24 @@ If Network shows Proxy/Internet ONLINE but Browser session NOT READY, the health
 ## RC44 smooth D-pad scrolling
 Hold D-pad Up/Down in the browser to scroll continuously. RC44 uses smaller accelerated scroll steps and a combined `/scroll-frame` proxy call so scrolling no longer needs separate scroll and screenshot round trips.
 
-## RC52 Windows proxy manager
+## RC53 Windows proxy manager
 
 `proxy/VitaSearch-Proxy-Manager.bat` now provides one CMD menu for installing requirements, updating npm/Playwright Chromium, configuring the VitaSearch API key and Spotify Client ID, starting the proxy, or showing the PC IPv4 address. Local secrets are stored in `proxy/proxy-settings.cmd`, which is ignored by Git and must not be committed.
 
 
-## RC52 input controls
+## RC53 input controls
 - Left analog stick uses standard Vita controller sampling for reliable mouse movement.
 - X: single press clicks; quick second press at the same position sends a double-click.
 - Touch: single tap clicks; quick second tap at the same position sends a double-click.
 - Two-finger pinch/spread zooms the Chromium page from 50% to 200%.
-- RC45 Proxy Manager is retained and updated to RC52.
+- RC45 Proxy Manager is retained and updated to RC53.
 
 
-## RC52 Spotify CMD
+## RC53 Spotify CMD
 Run `proxy\start-proxy-spotify.bat`. It can install/update dependencies, save the Vita API key and Spotify Client ID locally, start the proxy, show the PC IP, and clear the saved Spotify token. The Spotify Dashboard redirect URI must be exactly `http://127.0.0.1:8080/spotify/callback`. Never enter a Spotify Client Secret into the Vita app.
 
 
-## RC52 search + Spotify connection fix
+## RC53 search + Spotify connection fix
 
 - Browser search/navigation now runs in a Vita background worker instead of blocking controller/touch rendering.
 - New `/open-frame` proxy endpoint performs bounded navigation and returns the first PNG frame in one request.
@@ -664,14 +664,22 @@ Run `proxy\start-proxy-spotify.bat`. It can install/update dependencies, save th
 - Proxy and Internet status stay independent from Spotify authentication.
 
 
-## RC52 Spotify CONNECT reliability
+## RC53 Spotify CONNECT reliability
 - Serializes libcurl requests on Vita with a kernel mutex so background Spotify/browser navigation cannot collide with status polling.
 - CONNECT stays on the Spotify screen and visibly shows CONNECTING until the login frame actually arrives.
 - Only switches to the browser after the proxy returned the Spotify authorization page.
 - X, Triangle and touch all use the same CONNECT path.
 
 
-## RC52 About/version update fix
+## RC53 About/version update fix
 - Fixed the About screen which was still hard-coded to show `VitaSearch v0.99 RC45`.
-- About now uses a single `VITASEARCH_RELEASE` constant and shows `VitaSearch v0.99 RC52`.
+- About now uses a single `VITASEARCH_RELEASE` constant and shows `VitaSearch v0.99 RC53`.
 - RC51 L-stick no-freeze and Spotify fixes are retained.
+
+## RC53 - Web input keyboard + lower Spotify bar
+- X or touch on HTML input/textarea/contenteditable fields now opens the VitaSearch on-screen keyboard.
+- Works with Spotify sign-in fields and YouTube/web search fields through the Chromium proxy.
+- GO writes the text back to the focused HTML field, dispatches input/change events, presses Enter, and returns a fresh frame.
+- O closes the keyboard without changing the focused web field.
+- Non-editable X/touch targets still click normally.
+- Spotify mini-player is reduced and moved to the very bottom of the browser view to cover less webpage content.
