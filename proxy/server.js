@@ -284,6 +284,16 @@ app.get('/health', async (req, res) => {
   });
 });
 
+app.post('/session', requireKey, async (req, res) => {
+  try {
+    const s = await createSession();
+    return res.json({ ok: true, session: s.id, javascriptEnabled: s.javascriptEnabled !== false });
+  } catch (e) {
+    console.error('session_create_failed', e);
+    return res.status(500).json({ ok: false, error: 'session_create_failed', detail: String(e?.message || e || '') });
+  }
+});
+
 app.get('/tabs', requireKey, async (req, res) => {
   try {
     const id = String(req.query.session || '');
