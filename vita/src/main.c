@@ -68,6 +68,9 @@ static BrowserTab browser_tabs[TAB_MAX];
 static int browser_tab_count=1;
 static int browser_tab_active=0;
 static int browser_tab_focus=0;
+/* RC44 smooth held D-pad scrolling state. */
+static int scroll_hold_dir=0;
+static int scroll_hold_ticks=0;
 
 
 static int refresh_frame(void);
@@ -103,6 +106,22 @@ static int open_target(const char*t){
 static int remote_simple(const char*p){char b[160];snprintf(b,sizeof(b),"{\"session\":\"%s\"}",session);return post_web(p,b);}
 static int remote_click(int x,int y){char b[256];snprintf(b,sizeof(b),"{\"session\":\"%s\",\"x\":%d,\"y\":%d}",session,x,y);return post_web("/click",b);}
 static int remote_scroll(int dx,int dy){char b[256];snprintf(b,sizeof(b),"{\"session\":\"%s\",\"dx\":%d,\"dy\":%d}",session,dx,dy);return post_web("/scroll",b);}
+
+/* RC44: one round-trip scroll + screenshot. This avoids the old
+   /scroll then /frame double request, which made D-pad scrolling feel jerky. */
+static int remote_scroll_frame(int dy){
+ char url[512],body[256];
+ snprintf(url,sizeof(url),"%s/scroll-frame",proxy);
+ snprintf(body,sizeof(body),"{\"session\":\"%s\",\"dy\":%d}",session,dy);
+ NetBuffer b;
+ if(net_post_json(url,body,&b)!=0)return -1;
+ vita2d_texture *t=vita2d_load_PNG_buffer(b.data);
+ net_buffer_free(&b);
+ if(!t)return -1;
+ if(frame)vita2d_free_texture(frame);
+ frame=t;
+ return 0;
+}
 
 static int tab_new(void){
  if(browser_tab_count>=TAB_MAX)return -1;
@@ -283,7 +302,7 @@ static void draw_settings_appearance(void){
 
 static void draw_settings_about(void){
  draw_settings_header("About VitaSearch");
- draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC42");
+ draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC43");
  draw_text(44,142,RGBA8(242,245,244,255),0.68f,"Modern web rendering through Chromium proxy.");
  draw_text(44,180,RGBA8(242,245,244,255),0.68f,"PS Vita native controls + touch.");
  draw_text(44,218,RGBA8(242,245,244,255),0.68f,"Spotify Connect integration.");
@@ -531,7 +550,7 @@ static int spotify_login_web(void){
  }
  char body[192];snprintf(body,sizeof(body),"{\"session\":\"%s\"}",session);
  if(post_web("/spotify/session-login",body)!=0){
-   snprintf(spotify_notice,sizeof(spotify_notice),"Spotify login failed. Check SPOTIFY_CLIENT_ID on PC.");
+   snprintf(spotify_notice,sizeof(spotify_notice),"Spotify login failed. Check PC CMD / Spotify Client ID.");
    return -1;
  }
  if(refresh_frame()!=0){snprintf(spotify_notice,sizeof(spotify_notice),"Spotify login opened, waiting for frame...");}
@@ -838,7 +857,7 @@ int main(void){sceSysmoduleLoadModule(SCE_SYSMODULE_NET);sceSysmoduleLoadModule(
  offline_touch_down=offline_touch_now;
  /* RC39: restore authenticated /session creation; statuses remain independent. */
 }else if(online){
- /* RC42: smooth local analog cursor. A filtered velocity removes raw-stick jitter,
+ /* RC43: smooth local analog cursor. A filtered velocity removes raw-stick jitter,
     while a nonlinear speed curve keeps small movements precise and full tilt fast. */
  int ax=(int)pad.lx-128,ay=(int)pad.ly-128;
  const int dead=18;
@@ -852,7 +871,7 @@ int main(void){sceSysmoduleLoadModule(SCE_SYSMODULE_NET);sceSysmoduleLoadModule(
  cursor_fx+=cursor_vx; cursor_fy+=cursor_vy;
  if(cursor_fx<0)cursor_fx=0;if(cursor_fx>959)cursor_fx=959;
  if(cursor_fy<82)cursor_fy=82;if(cursor_fy>467)cursor_fy=467;
- cursor_x=(int)(cursor_fx+0.5f);cursor_y=(int)(cursor_fy+0.5f);if(pressed&SCE_CTRL_UP){remote_scroll(0,-360);refresh_frame();}if(pressed&SCE_CTRL_DOWN){remote_scroll(0,360);refresh_frame();}if(pressed&SCE_CTRL_LEFT&&browser_tab_count>1){int ni=browser_tab_active-1;if(ni<0)ni=browser_tab_count-1;tab_select(ni);}if(pressed&SCE_CTRL_RIGHT&&browser_tab_count>1){int ni=(browser_tab_active+1)%browser_tab_count;tab_select(ni);}if(pressed&SCE_CTRL_CROSS){remote_click(cursor_x,cursor_y);refresh_frame();}if(pressed&SCE_CTRL_LTRIGGER){remote_simple("/back");refresh_frame();}if(pressed&SCE_CTRL_RTRIGGER){remote_simple("/forward");refresh_frame();}if(pressed&SCE_CTRL_SQUARE){open_search_keyboard(&mode,&return_mode,input,&keysel);}if(pressed&SCE_CTRL_TRIANGLE){if(search_text[0]){open_target(search_text);refresh_frame();}else open_search_keyboard(&mode,&return_mode,input,&keysel);}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);browser_touch(&td,&mode,&return_mode,input,&keysel);/* RC42: stagger blocking HTTP refreshes so the pointer does not freeze every ~2s. */
+ cursor_x=(int)(cursor_fx+0.5f);cursor_y=(int)(cursor_fy+0.5f);/* RC44: Up/Down scroll while HELD, with smaller accelerated steps and a single scroll+frame request. */int scroll_dir=0;if(pad.buttons&SCE_CTRL_UP)scroll_dir=-1;else if(pad.buttons&SCE_CTRL_DOWN)scroll_dir=1;if(scroll_dir){if(scroll_hold_dir!=scroll_dir){scroll_hold_dir=scroll_dir;scroll_hold_ticks=0;}scroll_hold_ticks++;int step=(scroll_hold_ticks<7)?46:((scroll_hold_ticks<18)?70:100);remote_scroll_frame(scroll_dir*step);}else{scroll_hold_dir=0;scroll_hold_ticks=0;}if(pressed&SCE_CTRL_LEFT&&browser_tab_count>1){int ni=browser_tab_active-1;if(ni<0)ni=browser_tab_count-1;tab_select(ni);}if(pressed&SCE_CTRL_RIGHT&&browser_tab_count>1){int ni=(browser_tab_active+1)%browser_tab_count;tab_select(ni);}if(pressed&SCE_CTRL_CROSS){remote_click(cursor_x,cursor_y);refresh_frame();}if(pressed&SCE_CTRL_LTRIGGER){remote_simple("/back");refresh_frame();}if(pressed&SCE_CTRL_RTRIGGER){remote_simple("/forward");refresh_frame();}if(pressed&SCE_CTRL_SQUARE){open_search_keyboard(&mode,&return_mode,input,&keysel);}if(pressed&SCE_CTRL_TRIANGLE){if(search_text[0]){open_target(search_text);refresh_frame();}else open_search_keyboard(&mode,&return_mode,input,&keysel);}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);browser_touch(&td,&mode,&return_mode,input,&keysel);/* RC43: stagger blocking HTTP refreshes so the pointer does not freeze every ~2s. */
 if(++counter==120){refresh_frame();}
 else if(counter==150){spotify_refresh();}
 else if(counter==180){network_probe();}
@@ -867,7 +886,7 @@ if(settings_page==3&&touch_now&&!settings_touch_down){
  if(tx>=34&&tx<=926&&ty>=72&&ty<=130)reconnect_refresh();
 }
 settings_touch_down=touch_now;}}
-  else {if(pressed&SCE_CTRL_START){mode=MODE_WEB;}else if(!sp.connected){if(pressed&SCE_CTRL_CIRCLE){mode=MODE_WEB;}else if(pressed&SCE_CTRL_SELECT){mode=MODE_SETTINGS;settings_page=0;settings_selected=0;}else if(pressed&SCE_CTRL_CROSS){if(spotify_login_web()==0)mode=MODE_WEB;}}else if(search_view){if(pressed&SCE_CTRL_UP&&result_selected>0)result_selected--;if(pressed&SCE_CTRL_DOWN&&result_selected+1<result_count)result_selected++;if(pressed&SCE_CTRL_CROSS&&result_count){spotify_play_uri(proxy,results[result_selected].uri);search_view=0;spotify_refresh();}if(pressed&SCE_CTRL_SELECT&&result_count)spotify_queue_uri(proxy,results[result_selected].uri);if(pressed&SCE_CTRL_CIRCLE)search_view=0;if(pressed&SCE_CTRL_TRIANGLE){return_mode=MODE_SPOTIFY;mode=MODE_KEYBOARD;input[0]=0;keysel=0;}}else{if(pressed&SCE_CTRL_LEFT){spotify_control_selected=(spotify_control_selected+2)%3;}if(pressed&SCE_CTRL_RIGHT){spotify_control_selected=(spotify_control_selected+1)%3;}if(pressed&SCE_CTRL_CROSS){if(spotify_control_selected==0)spotify_command(proxy,"previous");else if(spotify_control_selected==1)spotify_command(proxy,sp.playing?"pause":"play");else spotify_command(proxy,"next");spotify_refresh();}if(pressed&SCE_CTRL_LTRIGGER){spotify_command(proxy,"previous");spotify_refresh();}if(pressed&SCE_CTRL_RTRIGGER){spotify_command(proxy,"next");spotify_refresh();}if(pressed&SCE_CTRL_UP){spotify_volume(proxy,sp.volume+5);spotify_refresh();}if(pressed&SCE_CTRL_DOWN){spotify_volume(proxy,sp.volume-5);spotify_refresh();}if(pressed&SCE_CTRL_SQUARE)spotify_refresh();if(pressed&SCE_CTRL_TRIANGLE){return_mode=MODE_SPOTIFY;mode=MODE_KEYBOARD;input[0]=0;keysel=0;}if(pressed&SCE_CTRL_SELECT){if(spotify_login_web()==0)mode=MODE_WEB;}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);spotify_touch(&td);if(++counter>=180){spotify_refresh();counter=0;}}}
+  else {if(pressed&SCE_CTRL_START){mode=MODE_WEB;}else if(!sp.connected){if(pressed&SCE_CTRL_CIRCLE){mode=MODE_WEB;}else if(pressed&SCE_CTRL_SELECT){mode=MODE_SETTINGS;settings_page=0;settings_selected=0;}else if(pressed&SCE_CTRL_CROSS){if(spotify_login_web()==0)mode=MODE_WEB;}SceTouchData ctd;memset(&ctd,0,sizeof(ctd));sceTouchPeek(SCE_TOUCH_PORT_FRONT,&ctd,1);static int spotify_connect_touch_down=0;int cdown=ctd.reportNum>0;if(cdown&&!spotify_connect_touch_down){int tx=ctd.report[0].x*960/1919;int ty=ctd.report[0].y*544/1087;if(tx>=320&&tx<=640&&ty>=270&&ty<=360){if(spotify_login_web()==0)mode=MODE_WEB;}}spotify_connect_touch_down=cdown;}else if(search_view){if(pressed&SCE_CTRL_UP&&result_selected>0)result_selected--;if(pressed&SCE_CTRL_DOWN&&result_selected+1<result_count)result_selected++;if(pressed&SCE_CTRL_CROSS&&result_count){spotify_play_uri(proxy,results[result_selected].uri);search_view=0;spotify_refresh();}if(pressed&SCE_CTRL_SELECT&&result_count)spotify_queue_uri(proxy,results[result_selected].uri);if(pressed&SCE_CTRL_CIRCLE)search_view=0;if(pressed&SCE_CTRL_TRIANGLE){return_mode=MODE_SPOTIFY;mode=MODE_KEYBOARD;input[0]=0;keysel=0;}}else{if(pressed&SCE_CTRL_LEFT){spotify_control_selected=(spotify_control_selected+2)%3;}if(pressed&SCE_CTRL_RIGHT){spotify_control_selected=(spotify_control_selected+1)%3;}if(pressed&SCE_CTRL_CROSS){if(spotify_control_selected==0)spotify_command(proxy,"previous");else if(spotify_control_selected==1)spotify_command(proxy,sp.playing?"pause":"play");else spotify_command(proxy,"next");spotify_refresh();}if(pressed&SCE_CTRL_LTRIGGER){spotify_command(proxy,"previous");spotify_refresh();}if(pressed&SCE_CTRL_RTRIGGER){spotify_command(proxy,"next");spotify_refresh();}if(pressed&SCE_CTRL_UP){spotify_volume(proxy,sp.volume+5);spotify_refresh();}if(pressed&SCE_CTRL_DOWN){spotify_volume(proxy,sp.volume-5);spotify_refresh();}if(pressed&SCE_CTRL_SQUARE)spotify_refresh();if(pressed&SCE_CTRL_TRIANGLE){return_mode=MODE_SPOTIFY;mode=MODE_KEYBOARD;input[0]=0;keysel=0;}if(pressed&SCE_CTRL_SELECT){if(spotify_login_web()==0)mode=MODE_WEB;}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);spotify_touch(&td);if(++counter>=180){spotify_refresh();counter=0;}}}
   vita2d_start_drawing();vita2d_clear_screen();if(mode==MODE_KEYBOARD){keyboard_draw(input,keysel,keyboard_purpose==2?"Edit Proxy URL":(keyboard_purpose==3?"Edit API Key":(return_mode==MODE_SPOTIFY?"Spotify search":"Address / Google search")));}else if(mode==MODE_SPOTIFY){draw_spotify();if(sp.connected)draw_spotify_touch_controls();}else if(mode==MODE_SETTINGS){draw_settings();}else if(frame){vita2d_draw_texture(frame,0,0);draw_browser_chrome();vita2d_draw_rectangle(cursor_x-6,cursor_y-1,13,3,RGBA8(20,255,120,255));vita2d_draw_rectangle(cursor_x-1,cursor_y-6,3,13,RGBA8(20,255,120,255));draw_mini_player();}else{
  draw_text(245,205,RGBA8(242,245,244,255),0.80f,proxy_enabled?(net_proxy_ok?"Proxy ONLINE - browser session not ready":reconnect_stage_text()):"Proxy is OFF");
  vita2d_draw_rectangle(250,245,460,80,RGBA8(35,235,110,255));

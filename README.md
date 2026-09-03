@@ -1,6 +1,12 @@
-# RC42 smooth pointer fix
+# VitaSearch RC44 – Spotify Connection Fix
 
-RC42 smooths the Vita left-stick mouse locally with a dead-zone, filtered velocity and nonlinear acceleration. It also staggers periodic frame/Spotify/network HTTP refreshes so several blocking requests no longer happen in the same render frame. Touch re-syncs the analog cursor immediately.
+RC44 fixes the native Spotify status endpoint (it referenced two non-existent helper functions), adds touch support to the disconnected CONNECT button, and includes a Windows Spotify proxy launcher. Spotify OAuth uses Authorization Code with PKCE.
+
+To log in, create a Spotify Developer app, add the exact redirect URI `http://127.0.0.1:8080/spotify/callback`, then run `proxy/start-proxy-spotify.bat` and enter your VitaSearch API key and Spotify Client ID. The Spotify account used with Development Mode must meet Spotify's current developer-mode requirements.
+
+# RC44 smooth pointer fix
+
+RC44 smooths the Vita left-stick mouse locally with a dead-zone, filtered velocity and nonlinear acceleration. It also staggers periodic frame/Spotify/network HTTP refreshes so several blocking requests no longer happen in the same render frame. Touch re-syncs the analog cursor immediately.
 
 # RC41 fixes
 
@@ -626,3 +632,7 @@ RC40 restores the authenticated `POST /session` endpoint expected by the Vita cl
 
 ## RC40 API key fix
 If Network shows Proxy/Internet ONLINE but Browser session NOT READY, the health endpoint is reachable while the protected browser endpoints may be rejecting the Vita API key. Set the same lowercase API key on PC and in VitaSearch Settings -> Proxy / HTTPS -> Edit API Key, then reconnect.
+
+
+## RC44 smooth D-pad scrolling
+Hold D-pad Up/Down in the browser to scroll continuously. RC44 uses smaller accelerated scroll steps and a combined `/scroll-frame` proxy call so scrolling no longer needs separate scroll and screenshot round trips.

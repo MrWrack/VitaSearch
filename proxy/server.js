@@ -389,7 +389,20 @@ app.post('/click', requireKey, async (req, res) => {
   try { const s = await session(req); const x=Math.max(0,Math.min(WIDTH-1,Number(req.body?.x||0))); const y=Math.max(0,Math.min(HEIGHT-1,Number(req.body?.y||0))); await s.page.mouse.click(x,y); await s.page.waitForTimeout(250); res.json({ok:true,session:s.id,url:s.page.url(),title:await s.page.title()}); }
   catch(e){res.status(500).json({ok:false,error:String(e)});}
 });
-app.post('/scroll', requireKey, async(req,res)=>{try{const s=await session(req);await s.page.mouse.wheel(Number(req.body?.dx||0),Number(req.body?.dy||0));await s.page.waitForTimeout(120);res.json({ok:true,session:s.id});}catch(e){res.status(500).json({ok:false,error:String(e)});}});
+app.post('/scroll', requireKey, async(req,res)=>{try{const s=await session(req);await s.page.mouse.wheel(Number(req.body?.dx||0),Number(req.body?.dy||0));await s.page.waitForTimeout(12);res.json({ok:true,session:s.id});}catch(e){res.status(500).json({ok:false,error:String(e)});}});
+
+// RC44: scrolling and the refreshed 960x544 frame in one LAN round trip.
+app.post('/scroll-frame', requireKey, async(req,res)=>{
+  try{
+    const s=await session(req);
+    const dy=Math.max(-180,Math.min(180,Number(req.body?.dy||0)));
+    await s.page.mouse.wheel(0,dy);
+    await s.page.waitForTimeout(8);
+    const png=await s.page.screenshot({type:'png'});
+    res.set('X-VitaSearch-Session',s.id);
+    res.type('png').send(png);
+  }catch(e){res.status(500).json({ok:false,error:String(e)});}
+});
 app.post('/key', requireKey, async(req,res)=>{try{const s=await session(req);const key=String(req.body?.key||'');if(key)await s.page.keyboard.press(key);res.json({ok:true,session:s.id});}catch(e){res.status(500).json({ok:false,error:String(e)});}});
 app.post('/text', requireKey, async(req,res)=>{try{const s=await session(req);await s.page.keyboard.type(String(req.body?.text||''),{delay:10});res.json({ok:true,session:s.id});}catch(e){res.status(500).json({ok:false,error:String(e)});}});
 for (const [route,method] of [['/back','goBack'],['/forward','goForward']]) app.post(route,requireKey,async(req,res)=>{try{const s=await session(req);await s.page[method]({waitUntil:'domcontentloaded'}).catch(()=>null);res.json({ok:true,session:s.id,url:s.page.url()});}catch(e){res.status(500).json({ok:false,error:String(e)});}});
@@ -506,7 +519,8 @@ app.post('/spotify/api/repeat', requireKey, async(req,res)=>{try{const state=['o
 // This never returns access/refresh tokens.
 app.get('/spotify/native/status', requireKey, async (req, res) => {
   try {
-    const token = await getValidSpotifyToken().catch(() => null);
+    let token = null;
+    try { token = await spotifyAccessToken(); } catch (_) { token = null; }
     if (!token) {
       return res.json({
         connected: false,
@@ -518,9 +532,8 @@ app.get('/spotify/native/status', requireKey, async (req, res) => {
 
     let device = null;
     try {
-      const response = await spotifyFetch('/me/player/devices');
-      if (response.ok) {
-        const body = await response.json();
+      const body = await spotifyApi('/me/player/devices');
+      {
         const active = (body.devices || []).find(d => d.is_active) || (body.devices || [])[0];
         if (active) device = { name: active.name || 'Spotify device', type: active.type || '' };
       }
