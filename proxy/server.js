@@ -135,6 +135,7 @@ async function createSession(options={}) {
   });
   const page = await context.newPage();
   page.setDefaultNavigationTimeout(30000);
+  await page.setContent(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=960,height=544"><style>body{margin:0;background:#f7f8fa;color:#1b1f23;font:20px Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:544px}.box{text-align:center;width:760px}.logo{font-size:52px;font-weight:800;color:#202124}.g{color:#20c96b}.hint{margin-top:22px;color:#60656b}.bar{margin:28px auto 0;background:white;border:1px solid #d9dde3;border-radius:28px;padding:16px 24px;width:650px;box-shadow:0 2px 8px #0001}</style></head><body><div class="box"><div class="logo">Vita<span class="g">Search</span></div><div class="bar">Tap the address bar above or press □ to search Google</div><div class="hint">Chromium proxy connected · browser session ready</div></div></body></html>`);
   sessions.set(id, { context, page, lastUsed: Date.now(), javascriptEnabled });
   return { id, context, page, javascriptEnabled };
 }
@@ -439,14 +440,36 @@ app.post('/privacy/clear-spotify-token', requireKey, async(_req,res)=>{
 });
 
 // ---- Spotify PKCE + Connect controller ----
-app.get('/spotify/login', requireKey, (req,res) => {
-  if (!SPOTIFY_CLIENT_ID) return res.status(500).send('Set SPOTIFY_CLIENT_ID on the proxy first.');
-  const state = crypto.randomUUID(); const verifier = makeVerifier();
+function createSpotifyAuthorizationUrl() {
+  if (!SPOTIFY_CLIENT_ID) throw new Error('SPOTIFY_CLIENT_ID is not configured');
+  const state = crypto.randomUUID();
+  const verifier = makeVerifier();
   oauthStates.set(state, { verifier, created: Date.now() });
   const scopes = ['user-read-playback-state','user-modify-playback-state','user-read-currently-playing','user-read-private'];
   const u = new URL('https://accounts.spotify.com/authorize');
   Object.entries({response_type:'code',client_id:SPOTIFY_CLIENT_ID,redirect_uri:SPOTIFY_REDIRECT_URI,scope:scopes.join(' '),state,code_challenge_method:'S256',code_challenge:challenge(verifier)}).forEach(([k,v])=>u.searchParams.set(k,v));
-  res.redirect(u.toString());
+  return u.toString();
+}
+
+app.get('/spotify/login', requireKey, (req,res) => {
+  try { res.redirect(createSpotifyAuthorizationUrl()); }
+  catch (e) { res.status(500).send('Set SPOTIFY_CLIENT_ID on the proxy first.'); }
+});
+
+/* RC41: the Vita native Connect button asks the proxy to navigate the existing
+   Chromium session directly. This avoids trying to open the LAN proxy URL as
+   an external/private target, which the SSRF guard correctly blocks. */
+app.post('/spotify/session-login', requireKey, async (req,res) => {
+  try {
+    const s = await session(req);
+    const authUrl = createSpotifyAuthorizationUrl();
+    await s.page.goto(authUrl, { waitUntil:'domcontentloaded', timeout:30000 });
+    console.log('[spotify] login page opened in session', s.id);
+    res.json({ok:true,session:s.id,url:s.page.url()});
+  } catch (e) {
+    console.warn('[spotify] session-login failed:', String(e?.message || e));
+    res.status(400).json({ok:false,error:String(e?.message || e || 'spotify_login_failed')});
+  }
 });
 
 app.get('/spotify/callback', async(req,res)=>{

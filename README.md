@@ -1,3 +1,11 @@
+# RC42 smooth pointer fix
+
+RC42 smooths the Vita left-stick mouse locally with a dead-zone, filtered velocity and nonlinear acceleration. It also staggers periodic frame/Spotify/network HTTP refreshes so several blocking requests no longer happen in the same render frame. Touch re-syncs the analog cursor immediately.
+
+# RC41 fixes
+
+RC41 fixes the RC40 config parser so the API key can no longer become the proxy URL after restart, adds URL validation, makes the on-screen keyboard accept touch instead of closing on touch, starts with a reliable local VitaSearch page instead of a blank Google homepage, and fixes native Spotify Connect by navigating the current Chromium session directly to Spotify OAuth. Spotify login still requires `SPOTIFY_CLIENT_ID` and a matching `SPOTIFY_REDIRECT_URI` on the PC proxy.
+
 # VitaSearch 0.7 HTTPS Preview — native Spotify UI + modern web proxy
 
 VitaSearch is a PS Vita VitaSDK client paired with a Node/Playwright proxy. Modern websites render on Chromium on the proxy, while the Vita receives frames and sends navigation input.

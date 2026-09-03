@@ -19,19 +19,39 @@ int config_load_proxy(char *out, size_t out_size) {
     out[out_size - 1] = 0;
     return 0;
   }
-  int n = sceIoRead(fd, out, out_size - 1);
+
+  /* RC41: only load line 1 as the proxy URL. RC40 accidentally kept
+     the API-key/CA lines in this buffer, so a restart could corrupt proxy. */
+  char buf[768];
+  int n = sceIoRead(fd, buf, sizeof(buf) - 1);
   sceIoClose(fd);
   if (n <= 0) return -1;
-  out[n] = 0;
-  while (n > 0 && (out[n-1] == '\n' || out[n-1] == '\r' || out[n-1] == ' ')) out[--n] = 0;
-  /* RC35: old builds pointed at HTTPS :8443 even though npm start uses HTTP :8080. */
+  buf[n] = 0;
+
+  char *eol = strpbrk(buf, "\r\n");
+  if (eol) *eol = 0;
+  char *begin = buf;
+  while (*begin == ' ' || *begin == '\t') begin++;
+  char *end = begin + strlen(begin);
+  while (end > begin && (end[-1] == ' ' || end[-1] == '\t')) *--end = 0;
+
+  if (strncmp(begin, "http://", 7) != 0 && strncmp(begin, "https://", 8) != 0) {
+    /* Never accept an API key or random text as a proxy address. */
+    strncpy(out, "http://192.168.1.50:8080", out_size - 1);
+    out[out_size - 1] = 0;
+    return -2;
+  }
+
+  strncpy(out, begin, out_size - 1);
+  out[out_size - 1] = 0;
+
+  /* RC35 migration from the old HTTPS prototype default. */
   if (!strcmp(out, "https://192.168.1.50:8443")) {
     strncpy(out, "http://192.168.1.50:8080", out_size - 1);
     out[out_size - 1] = 0;
   }
   return 0;
 }
-
 
 int config_load(char *proxy, size_t proxy_size, char *api_key, size_t key_size, char *ca_file, size_t ca_size) {
   if (config_load_proxy(proxy, proxy_size) != 0) return -1;
