@@ -36,7 +36,8 @@ static int javascript_pending=0;
 static char spotify_notice[128]="";
 static char settings_status[96]="";
 static char last_cover[512]="";
-static int online=0;
+static int online=0; /* browser session ready; kept separate from proxy/internet */
+static int browser_session_ok=0;
 static int net_proxy_ok=0;
 static int net_internet_ok=0;
 static int net_https_ok=0;
@@ -198,18 +199,20 @@ static void draw_settings_default_search(void){
 
 static void draw_settings_network(void){
  draw_settings_header("Network");
- vita2d_draw_rectangle(34,72,892,58,RGBA8(35,235,110,settings_selected==0?255:110));
- draw_text(58,108,RGBA8(5,25,12,255),0.72f,reconnect_busy?reconnect_stage_text():"RECONNECT / REFRESH");
- draw_text(742,108,RGBA8(5,25,12,255),0.66f,"X / TAP");
- draw_settings_row(144,"Vita / Proxy",0,net_proxy_ok?"ONLINE":"OFFLINE");
- draw_settings_row(192,"Internet",0,net_internet_ok?"ONLINE":"OFFLINE");
- draw_settings_row(240,"HTTPS",0,net_https_ok?"OK":"--");
+ vita2d_draw_rectangle(34,64,892,52,RGBA8(35,235,110,settings_selected==0?255:110));
+ draw_text(58,97,RGBA8(5,25,12,255),0.70f,reconnect_busy?reconnect_stage_text():"RECONNECT / REFRESH");
+ draw_text(742,97,RGBA8(5,25,12,255),0.64f,"X / TAP");
+ draw_settings_row(126,"Proxy",0,net_proxy_ok?"ONLINE":"OFFLINE");
+ draw_settings_row(170,"Internet",0,net_internet_ok?"ONLINE":"OFFLINE");
+ draw_settings_row(214,"Browser session",0,browser_session_ok?"READY":"NOT READY");
+ draw_settings_row(258,"Spotify",0,(spotify_status_rc==0&&spotify_status.connected)?"CONNECTED":"NOT CONNECTED");
+ draw_settings_row(302,"HTTPS",0,net_https_ok?"OK":"--");
  char tmp[96];snprintf(tmp,sizeof(tmp),"Latency: %d ms",net_latency_ms);
- draw_text(44,302,RGBA8(242,245,244,255),0.68f,tmp);
- draw_text(44,338,RGBA8(242,245,244,255),0.68f,"Proxy base URL:");
- draw_text(44,370,RGBA8(35,235,110,255),0.64f,proxy);
- draw_text(44,412,RGBA8(135,150,145,255),0.60f,"X, Triangle or tap the green button to refresh.");
- if(settings_status[0])draw_text(44,448,RGBA8(235,180,80,255),0.60f,settings_status);
+ draw_text(44,372,RGBA8(242,245,244,255),0.64f,tmp);
+ draw_text(44,405,RGBA8(242,245,244,255),0.64f,"Proxy:");
+ draw_text(104,405,RGBA8(35,235,110,255),0.60f,proxy);
+ draw_text(44,440,RGBA8(135,150,145,255),0.57f,"Proxy, Internet, Browser and Spotify are tracked separately.");
+ if(settings_status[0])draw_text(44,478,RGBA8(235,180,80,255),0.58f,settings_status);
 }
 static void draw_settings_privacy(void){
  draw_settings_header("Privacy");
@@ -230,7 +233,7 @@ static void draw_settings_proxy(void){
  draw_settings_header("Proxy / HTTPS");
  draw_settings_row(78,"Proxy",settings_selected==0,proxy_enabled?"ON":"OFF");
  draw_settings_row(126,"Edit Proxy URL",settings_selected==1,"X");
- draw_settings_row(174,"Connection",0,(proxy_enabled&&online)?"CONNECTED":"OFFLINE");
+ draw_settings_row(174,"Proxy status",0,(proxy_enabled&&net_proxy_ok)?"ONLINE":"OFFLINE");
  draw_text(44,242,RGBA8(242,245,244,255),0.68f,"Proxy address:");
  draw_text(44,277,RGBA8(35,235,110,255),0.64f,proxy);
  draw_text(44,325,RGBA8(165,180,175,255),0.62f,"Proxy server default: HTTP port 8080.");
@@ -277,7 +280,7 @@ static void draw_settings_appearance(void){
 
 static void draw_settings_about(void){
  draw_settings_header("About VitaSearch");
- draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC37");
+ draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC38");
  draw_text(44,142,RGBA8(242,245,244,255),0.68f,"Modern web rendering through Chromium proxy.");
  draw_text(44,180,RGBA8(242,245,244,255),0.68f,"PS Vita native controls + touch.");
  draw_text(44,218,RGBA8(242,245,244,255),0.68f,"Spotify Connect integration.");
@@ -357,6 +360,8 @@ static int reconnect_worker(SceSize args, void *argp){
 
  reconnect_stage=3;
  if(create_session()!=0){
+   browser_session_ok=0;
+   online=0;
    reconnect_result=-3;
    reconnect_stage=0;
    reconnect_done=1;
@@ -370,6 +375,8 @@ static int reconnect_worker(SceSize args, void *argp){
      javascript_pending=0;
  }
 
+ browser_session_ok=1;
+ online=1;
  reconnect_stage=4;
  char u[512];
  snprintf(u,sizeof(u),"%s/frame?session=%s",proxy,session);
@@ -399,7 +406,7 @@ static int reconnect_worker(SceSize args, void *argp){
 static void reconnect_refresh(void){
  if(!proxy_enabled){
    snprintf(settings_status,sizeof(settings_status),"Proxy is OFF");
-   online=0;net_proxy_ok=0;net_internet_ok=0;
+   online=0;browser_session_ok=0;net_proxy_ok=0;net_internet_ok=0;
    return;
  }
  if(reconnect_busy){
@@ -444,6 +451,7 @@ static void finish_reconnect_if_ready(void){
    if(t){
      if(frame)vita2d_free_texture(frame);
      frame=t;
+     browser_session_ok=1;
      online=1;
      snprintf(settings_status,sizeof(settings_status),
               net_internet_ok?"Proxy + Internet ONLINE":"Proxy ONLINE, Internet unavailable");
@@ -451,16 +459,14 @@ static void finish_reconnect_if_ready(void){
      mode=MODE_WEB;
      return;
    }
-   online=0;
-   snprintf(settings_status,sizeof(settings_status),"Frame decode failed");
+   snprintf(settings_status,sizeof(settings_status),"Browser session READY, frame decode failed");
    return;
  }
 
- online=0;
  if(reconnect_frame_data){free(reconnect_frame_data);reconnect_frame_data=NULL;reconnect_frame_size=0;}
- if(reconnect_result==-2)snprintf(settings_status,sizeof(settings_status),"Proxy unreachable - check PC IP/port/firewall");
- else if(reconnect_result==-3)snprintf(settings_status,sizeof(settings_status),"Proxy reachable, browser session failed");
- else if(reconnect_result==-4)snprintf(settings_status,sizeof(settings_status),"Proxy/session OK, frame request failed");
+ if(reconnect_result==-2){browser_session_ok=0;online=0;snprintf(settings_status,sizeof(settings_status),"Proxy unreachable - check PC IP/port/firewall");}
+ else if(reconnect_result==-3){browser_session_ok=0;online=0;snprintf(settings_status,sizeof(settings_status),"Proxy ONLINE, browser session failed");}
+ else if(reconnect_result==-4){browser_session_ok=1;online=1;snprintf(settings_status,sizeof(settings_status),"Proxy + session OK, frame request failed");}
  else snprintf(settings_status,sizeof(settings_status),"Reconnect failed");
 }
 
@@ -490,7 +496,7 @@ static void settings_action(void){
    if(settings_selected==0){
      proxy_enabled=!proxy_enabled;
      if(!proxy_enabled){
-       online=0;net_proxy_ok=0;net_internet_ok=0;net_latency_ms=-1;
+       online=0;browser_session_ok=0;net_proxy_ok=0;net_internet_ok=0;net_latency_ms=-1;
        snprintf(settings_status,sizeof(settings_status),"Proxy OFF");
      }else snprintf(settings_status,sizeof(settings_status),"Proxy ON - use Network Reconnect");
    }
@@ -515,13 +521,13 @@ static void update_cover(void){if(strcmp(last_cover,sp.cover_url)==0)return;strn
 static void spotify_refresh(void){if(spotify_get_state(proxy,&sp)==0)update_cover();}
 static int spotify_login_web(void){
  if(!proxy_enabled){snprintf(spotify_notice,sizeof(spotify_notice),"Proxy is OFF. Enable it in Settings.");return -1;}
- if(!online){
-   online=create_session()==0;
-   if(!online){snprintf(spotify_notice,sizeof(spotify_notice),"Proxy offline. Start proxy and press X again.");return -1;}
+ if(!browser_session_ok){
+   if(create_session()!=0){browser_session_ok=0;online=0;snprintf(spotify_notice,sizeof(spotify_notice),net_proxy_ok?"Proxy online, browser session failed.":"Proxy offline. Start proxy and press X again.");return -1;}
+   browser_session_ok=1;online=1;
    if(javascript_pending&&settings_set_javascript(proxy,session,javascript_enabled)==0)javascript_pending=0;
  }
  char u[768];snprintf(u,sizeof(u),"%s/spotify/login?key=%s",proxy,api_key);
- if(open_target(u)!=0){online=0;snprintf(spotify_notice,sizeof(spotify_notice),"Could not open Spotify login through proxy.");return -1;}
+ if(open_target(u)!=0){snprintf(spotify_notice,sizeof(spotify_notice),"Spotify login request failed; proxy status unchanged.");return -1;}
  if(refresh_frame()!=0){snprintf(spotify_notice,sizeof(spotify_notice),"Spotify login opened, waiting for frame...");}
  else spotify_notice[0]=0;
  return 0;
@@ -578,7 +584,7 @@ static void submit_proxy_keyboard(AppMode return_mode,char *input){
    strncpy(proxy,input,sizeof(proxy)-1);
    proxy[sizeof(proxy)-1]=0;
    config_save_proxy(proxy,api_key,ca_file);
-   online=0;net_proxy_ok=0;net_internet_ok=0;net_latency_ms=-1;
+   online=0;browser_session_ok=0;net_proxy_ok=0;net_internet_ok=0;net_latency_ms=-1;
    snprintf(settings_status,sizeof(settings_status),"Proxy URL saved. Network -> Reconnect.");
  }
  keyboard_purpose=0;
@@ -659,9 +665,10 @@ static void draw_browser_chrome(void){
  {
    char ns[96];
    unsigned int nc=RGBA8(235,90,90,255);
-   if(net_proxy_ok&&net_internet_ok){snprintf(ns,sizeof(ns),"Online%s %d ms",net_https_ok?" HTTPS":"",net_latency_ms);nc=RGBA8(35,235,110,255);}
-   else if(net_proxy_ok){snprintf(ns,sizeof(ns),"Proxy online");nc=RGBA8(235,180,80,255);}
-   else snprintf(ns,sizeof(ns),"Offline");
+   if(net_proxy_ok&&browser_session_ok&&net_internet_ok){snprintf(ns,sizeof(ns),"Online %dms",net_latency_ms);nc=RGBA8(35,235,110,255);}
+   else if(net_proxy_ok&&browser_session_ok){snprintf(ns,sizeof(ns),"Proxy+Session");nc=RGBA8(235,180,80,255);}
+   else if(net_proxy_ok){snprintf(ns,sizeof(ns),"Proxy online / No session");nc=RGBA8(235,180,80,255);}
+   else snprintf(ns,sizeof(ns),"Proxy offline");
    draw_text(790,64,nc,0.54f,ns);
  }
 }
@@ -752,7 +759,7 @@ static void draw_spotify_touch_controls(void){
  vita2d_draw_rectangle(610,488,vw,8,RGBA8(35,235,110,255));
 }
 
-int main(void){sceSysmoduleLoadModule(SCE_SYSMODULE_NET);sceSysmoduleLoadModule(SCE_SYSMODULE_HTTP);sceSysmoduleLoadModule(SCE_SYSMODULE_SSL);vita2d_init();font=vita2d_load_default_pgf();sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT,SCE_TOUCH_SAMPLING_STATE_START);config_load(proxy,sizeof(proxy),api_key,sizeof(api_key),ca_file,sizeof(ca_file));net_init();net_set_api_key(api_key);net_set_ca_file(ca_file);online=create_session()==0;
+int main(void){sceSysmoduleLoadModule(SCE_SYSMODULE_NET);sceSysmoduleLoadModule(SCE_SYSMODULE_HTTP);sceSysmoduleLoadModule(SCE_SYSMODULE_SSL);vita2d_init();font=vita2d_load_default_pgf();sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT,SCE_TOUCH_SAMPLING_STATE_START);config_load(proxy,sizeof(proxy),api_key,sizeof(api_key),ca_file,sizeof(ca_file));net_init();net_set_api_key(api_key);net_set_ca_file(ca_file);network_probe();browser_session_ok=(create_session()==0);online=browser_session_ok;
  memset(&spotify_status,0,sizeof(spotify_status));
  snprintf(spotify_status.callback,sizeof(spotify_status.callback),"unknown");
  snprintf(spotify_status.token,sizeof(spotify_status.token),"unknown");
@@ -773,8 +780,8 @@ int main(void){sceSysmoduleLoadModule(SCE_SYSMODULE_NET);sceSysmoduleLoadModule(
    else if(tx>=250&&tx<=710&&ty>=345&&ty<=420)open_settings_root();
  }
  offline_touch_down=offline_touch_now;
- /* RC37: manual reconnect only; no automatic retry loop. */
-}else if(online){int ax=(int)pad.lx-128,ay=(int)pad.ly-128;if(ax>20||ax<-20)cursor_x+=ax/22;if(ay>20||ay<-20)cursor_y+=ay/22;if(cursor_x<0)cursor_x=0;if(cursor_x>959)cursor_x=959;if(cursor_y<82)cursor_y=82;if(cursor_y>467)cursor_y=467;if(pressed&SCE_CTRL_UP){remote_scroll(0,-360);refresh_frame();}if(pressed&SCE_CTRL_DOWN){remote_scroll(0,360);refresh_frame();}if(pressed&SCE_CTRL_LEFT&&browser_tab_count>1){int ni=browser_tab_active-1;if(ni<0)ni=browser_tab_count-1;tab_select(ni);}if(pressed&SCE_CTRL_RIGHT&&browser_tab_count>1){int ni=(browser_tab_active+1)%browser_tab_count;tab_select(ni);}if(pressed&SCE_CTRL_CROSS){remote_click(cursor_x,cursor_y);refresh_frame();}if(pressed&SCE_CTRL_LTRIGGER){remote_simple("/back");refresh_frame();}if(pressed&SCE_CTRL_RTRIGGER){remote_simple("/forward");refresh_frame();}if(pressed&SCE_CTRL_SQUARE){open_search_keyboard(&mode,&return_mode,input,&keysel);}if(pressed&SCE_CTRL_TRIANGLE){if(search_text[0]){open_target(search_text);refresh_frame();}else open_search_keyboard(&mode,&return_mode,input,&keysel);}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);browser_touch(&td,&mode,&return_mode,input,&keysel);if(++counter>=120){refresh_frame();spotify_refresh();network_probe();refresh_spotify_status();if(!net_proxy_ok)online=0;counter=0;}}}
+ /* RC38: manual reconnect; proxy/network/session/Spotify status are independent. */
+}else if(online){int ax=(int)pad.lx-128,ay=(int)pad.ly-128;if(ax>20||ax<-20)cursor_x+=ax/22;if(ay>20||ay<-20)cursor_y+=ay/22;if(cursor_x<0)cursor_x=0;if(cursor_x>959)cursor_x=959;if(cursor_y<82)cursor_y=82;if(cursor_y>467)cursor_y=467;if(pressed&SCE_CTRL_UP){remote_scroll(0,-360);refresh_frame();}if(pressed&SCE_CTRL_DOWN){remote_scroll(0,360);refresh_frame();}if(pressed&SCE_CTRL_LEFT&&browser_tab_count>1){int ni=browser_tab_active-1;if(ni<0)ni=browser_tab_count-1;tab_select(ni);}if(pressed&SCE_CTRL_RIGHT&&browser_tab_count>1){int ni=(browser_tab_active+1)%browser_tab_count;tab_select(ni);}if(pressed&SCE_CTRL_CROSS){remote_click(cursor_x,cursor_y);refresh_frame();}if(pressed&SCE_CTRL_LTRIGGER){remote_simple("/back");refresh_frame();}if(pressed&SCE_CTRL_RTRIGGER){remote_simple("/forward");refresh_frame();}if(pressed&SCE_CTRL_SQUARE){open_search_keyboard(&mode,&return_mode,input,&keysel);}if(pressed&SCE_CTRL_TRIANGLE){if(search_text[0]){open_target(search_text);refresh_frame();}else open_search_keyboard(&mode,&return_mode,input,&keysel);}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);browser_touch(&td,&mode,&return_mode,input,&keysel);if(++counter>=120){refresh_frame();spotify_refresh();network_probe();refresh_spotify_status();counter=0;}}}
   else if(mode==MODE_SETTINGS){if(pressed&SCE_CTRL_CIRCLE){if(settings_page){settings_page=0;settings_selected=0;settings_status[0]=0;}else mode=MODE_WEB;}else{int scount=settings_page==0?SETTINGS_CATEGORY_COUNT:(settings_page==5?CLEAR_COUNT:((settings_page==2||settings_page==6)?2:1));if(pressed&SCE_CTRL_UP&&settings_selected>0)settings_selected--;if(pressed&SCE_CTRL_DOWN&&settings_selected+1<scount)settings_selected++;if(pressed&SCE_CTRL_CROSS){if(settings_page==6&&settings_selected==1)open_proxy_keyboard(&return_mode,input,&keysel);else settings_action();}if((pressed&SCE_CTRL_TRIANGLE)&&settings_page==3)reconnect_refresh();if((pressed&SCE_CTRL_LEFT||pressed&SCE_CTRL_RIGHT)&&(settings_page==1||settings_page==2||(settings_page==6&&settings_selected==0)))settings_action();
 SceTouchData std;memset(&std,0,sizeof(std));sceTouchPeek(SCE_TOUCH_PORT_FRONT,&std,1);
 static int settings_touch_down=0;
@@ -787,7 +794,7 @@ if(settings_page==3&&touch_now&&!settings_touch_down){
 settings_touch_down=touch_now;}}
   else {if(pressed&SCE_CTRL_START){mode=MODE_WEB;}else if(!sp.connected){if(pressed&SCE_CTRL_CIRCLE){mode=MODE_WEB;}else if(pressed&SCE_CTRL_SELECT){mode=MODE_SETTINGS;settings_page=0;settings_selected=0;}else if(pressed&SCE_CTRL_CROSS){if(spotify_login_web()==0)mode=MODE_WEB;}}else if(search_view){if(pressed&SCE_CTRL_UP&&result_selected>0)result_selected--;if(pressed&SCE_CTRL_DOWN&&result_selected+1<result_count)result_selected++;if(pressed&SCE_CTRL_CROSS&&result_count){spotify_play_uri(proxy,results[result_selected].uri);search_view=0;spotify_refresh();}if(pressed&SCE_CTRL_SELECT&&result_count)spotify_queue_uri(proxy,results[result_selected].uri);if(pressed&SCE_CTRL_CIRCLE)search_view=0;if(pressed&SCE_CTRL_TRIANGLE){return_mode=MODE_SPOTIFY;mode=MODE_KEYBOARD;input[0]=0;keysel=0;}}else{if(pressed&SCE_CTRL_LEFT){spotify_control_selected=(spotify_control_selected+2)%3;}if(pressed&SCE_CTRL_RIGHT){spotify_control_selected=(spotify_control_selected+1)%3;}if(pressed&SCE_CTRL_CROSS){if(spotify_control_selected==0)spotify_command(proxy,"previous");else if(spotify_control_selected==1)spotify_command(proxy,sp.playing?"pause":"play");else spotify_command(proxy,"next");spotify_refresh();}if(pressed&SCE_CTRL_LTRIGGER){spotify_command(proxy,"previous");spotify_refresh();}if(pressed&SCE_CTRL_RTRIGGER){spotify_command(proxy,"next");spotify_refresh();}if(pressed&SCE_CTRL_UP){spotify_volume(proxy,sp.volume+5);spotify_refresh();}if(pressed&SCE_CTRL_DOWN){spotify_volume(proxy,sp.volume-5);spotify_refresh();}if(pressed&SCE_CTRL_SQUARE)spotify_refresh();if(pressed&SCE_CTRL_TRIANGLE){return_mode=MODE_SPOTIFY;mode=MODE_KEYBOARD;input[0]=0;keysel=0;}if(pressed&SCE_CTRL_SELECT){if(spotify_login_web()==0)mode=MODE_WEB;}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);spotify_touch(&td);if(++counter>=180){spotify_refresh();counter=0;}}}
   vita2d_start_drawing();vita2d_clear_screen();if(mode==MODE_KEYBOARD){keyboard_draw(input,keysel,keyboard_purpose==2?"Edit Proxy URL":(return_mode==MODE_SPOTIFY?"Spotify search":"Address / Google search"));}else if(mode==MODE_SPOTIFY){draw_spotify();if(sp.connected)draw_spotify_touch_controls();}else if(mode==MODE_SETTINGS){draw_settings();}else if(frame){vita2d_draw_texture(frame,0,0);draw_browser_chrome();vita2d_draw_rectangle(cursor_x-6,cursor_y-1,13,3,RGBA8(20,255,120,255));vita2d_draw_rectangle(cursor_x-1,cursor_y-6,3,13,RGBA8(20,255,120,255));draw_mini_player();}else{
- draw_text(245,205,RGBA8(242,245,244,255),0.80f,proxy_enabled?reconnect_stage_text():"Proxy is OFF");
+ draw_text(245,205,RGBA8(242,245,244,255),0.80f,proxy_enabled?(net_proxy_ok?"Proxy ONLINE - browser session not ready":reconnect_stage_text()):"Proxy is OFF");
  vita2d_draw_rectangle(250,245,460,80,RGBA8(35,235,110,255));
  draw_text(330,295,RGBA8(5,25,12,255),0.78f,reconnect_busy?"CONNECTING...":"RECONNECT / REFRESH");
  vita2d_draw_rectangle(250,345,460,72,RGBA8(38,48,44,255));

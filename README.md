@@ -604,3 +604,8 @@ Automatic reconnect looping is removed. Proxy / HTTPS now has `Edit Proxy URL`.
 Enter the PC's real IPv4 address, e.g. `http://192.168.1.23:8080`. The address
 is saved to `ux0:data/vitasearch/config.txt`. Reconnect then happens only when
 the user explicitly presses X/Triangle/touch.
+
+
+## RC38 split connection status
+
+RC38 tracks Proxy, Internet, Browser session, and Spotify independently. A failed browser session or frame no longer rewrites a healthy proxy connection as OFFLINE. The Network page shows each state separately, and the browser chrome distinguishes `Proxy online / No session` from a true proxy outage.
