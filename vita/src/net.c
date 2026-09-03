@@ -3,9 +3,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <psp2/kernel/threadmgr.h>
 
 static char g_api_key[128] = "";
 static char g_ca_file[256] = "";
+static SceUID g_net_mutex = -1;
 
 void net_set_ca_file(const char *path) {
   if (!path) path = "";
@@ -32,14 +34,18 @@ static size_t write_cb(void *ptr, size_t size, size_t nmemb, void *userdata) {
 }
 
 int net_init(void) {
-  return curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK ? 0 : -1;
+  if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) return -1;
+  g_net_mutex = sceKernelCreateMutex("VitaSearchNet", 0, 1, NULL);
+  return g_net_mutex >= 0 ? 0 : -1;
 }
 
 void net_term(void) {
+  if (g_net_mutex >= 0) { sceKernelDeleteMutex(g_net_mutex); g_net_mutex = -1; }
   curl_global_cleanup();
 }
 
 static int perform(CURL *c, NetBuffer *out) {
+  if (g_net_mutex >= 0) sceKernelLockMutex(g_net_mutex, 1, NULL);
   out->data = NULL;
   out->size = 0;
   curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, write_cb);
@@ -53,7 +59,9 @@ static int perform(CURL *c, NetBuffer *out) {
   CURLcode rc = curl_easy_perform(c);
   long status = 0;
   curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
-  return (rc == CURLE_OK && status >= 200 && status < 300) ? 0 : -1;
+  int ok = (rc == CURLE_OK && status >= 200 && status < 300) ? 0 : -1;
+  if (g_net_mutex >= 0) sceKernelUnlockMutex(g_net_mutex, 1);
+  return ok;
 }
 
 int net_get(const char *url, NetBuffer *out) {

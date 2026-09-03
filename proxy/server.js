@@ -388,7 +388,7 @@ app.post('/open', requireKey, async (req, res) => {
 });
 
 
-/* RC49: bounded navigation + screenshot in one request.  The Vita runs this
+/* RC50: bounded navigation + screenshot in one request.  The Vita runs this
    from a worker thread so slow websites never freeze controller/touch input. */
 app.post('/open-frame', requireKey, async (req, res) => {
   try {
@@ -525,7 +525,7 @@ app.post('/spotify/session-login', requireKey, async (req,res) => {
 
 
 
-/* RC49: login navigation and first frame in one bounded request. */
+/* RC50: login navigation and first frame in one bounded request. */
 app.post('/spotify/session-login-frame', requireKey, async (req,res) => {
   try {
     const s = await session(req);

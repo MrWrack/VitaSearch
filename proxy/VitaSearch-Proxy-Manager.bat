@@ -1,12 +1,12 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
-title VitaSearch Proxy Manager RC49
+title VitaSearch Proxy Manager RC51
 
 :menu
 cls
 echo ==========================================
-echo       VitaSearch Proxy Manager RC49
+echo       VitaSearch Proxy Manager RC51
 echo ==========================================
 echo.
 echo [1] Install proxy requirements
