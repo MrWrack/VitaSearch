@@ -136,8 +136,8 @@ async function createSession(options={}) {
   const page = await context.newPage();
   page.setDefaultNavigationTimeout(30000);
   await page.setContent(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=960,height=544"><style>body{margin:0;background:#f7f8fa;color:#1b1f23;font:20px Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:544px}.box{text-align:center;width:760px}.logo{font-size:52px;font-weight:800;color:#202124}.g{color:#20c96b}.hint{margin-top:22px;color:#60656b}.bar{margin:28px auto 0;background:white;border:1px solid #d9dde3;border-radius:28px;padding:16px 24px;width:650px;box-shadow:0 2px 8px #0001}</style></head><body><div class="box"><div class="logo">Vita<span class="g">Search</span></div><div class="bar">Tap the address bar above or press □ to search Google</div><div class="hint">Chromium proxy connected · browser session ready</div></div></body></html>`);
-  sessions.set(id, { context, page, lastUsed: Date.now(), javascriptEnabled });
-  return { id, context, page, javascriptEnabled };
+  sessions.set(id, { context, page, lastUsed: Date.now(), javascriptEnabled, zoom: 100 });
+  return { id, context, page, javascriptEnabled, zoom: 100 };
 }
 
 
@@ -386,8 +386,20 @@ app.post('/open', requireKey, async (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
 });
 app.post('/click', requireKey, async (req, res) => {
-  try { const s = await session(req); const x=Math.max(0,Math.min(WIDTH-1,Number(req.body?.x||0))); const y=Math.max(0,Math.min(HEIGHT-1,Number(req.body?.y||0))); await s.page.mouse.click(x,y); await s.page.waitForTimeout(250); res.json({ok:true,session:s.id,url:s.page.url(),title:await s.page.title()}); }
+  try { const s = await session(req); const x=Math.max(0,Math.min(WIDTH-1,Number(req.body?.x||0))); const y=Math.max(0,Math.min(HEIGHT-1,Number(req.body?.y||0))); const count=Math.max(1,Math.min(2,Number(req.body?.count||1))); await s.page.mouse.click(x,y,{clickCount:count,delay:35}); await s.page.waitForTimeout(120); res.json({ok:true,session:s.id,url:s.page.url(),title:await s.page.title(),clickCount:count}); }
   catch(e){res.status(500).json({ok:false,error:String(e)});}
+});
+
+// RC47: browser pinch zoom. The Vita sends +/-10 steps while two fingers move apart/together.
+app.post('/zoom', requireKey, async(req,res)=>{
+  try{
+    const s=await session(req);
+    const delta=Math.max(-25,Math.min(25,Number(req.body?.delta||0)));
+    s.zoom=Math.max(50,Math.min(200,Number(s.zoom||100)+delta));
+    await s.page.evaluate(z=>{ document.documentElement.style.zoom=`${z}%`; },s.zoom).catch(()=>{});
+    await s.page.waitForTimeout(20);
+    res.json({ok:true,session:s.id,zoom:s.zoom});
+  }catch(e){res.status(500).json({ok:false,error:String(e)});}
 });
 app.post('/scroll', requireKey, async(req,res)=>{try{const s=await session(req);await s.page.mouse.wheel(Number(req.body?.dx||0),Number(req.body?.dy||0));await s.page.waitForTimeout(12);res.json({ok:true,session:s.id});}catch(e){res.status(500).json({ok:false,error:String(e)});}});
 

@@ -59,6 +59,12 @@ static unsigned char *reconnect_frame_data=NULL;
 static size_t reconnect_frame_size=0;
 
 static int browser_touch_down=0;
+static unsigned int last_touch_click_us=0;
+static int last_touch_x=-1000,last_touch_y=-1000;
+static unsigned int last_x_click_us=0;
+static int last_x_click_x=-1000,last_x_click_y=-1000;
+static int pinch_active=0;
+static int pinch_last_dist=0;
 static int search_keyboard_open=0;
 static int keyboard_purpose=0; /* 0 web, 1 spotify, 2 proxy URL, 3 API key */
 static char search_text[512]="";
@@ -104,7 +110,9 @@ static int open_target(const char*t){
  return post_web("/open",b);
 }
 static int remote_simple(const char*p){char b[160];snprintf(b,sizeof(b),"{\"session\":\"%s\"}",session);return post_web(p,b);}
-static int remote_click(int x,int y){char b[256];snprintf(b,sizeof(b),"{\"session\":\"%s\",\"x\":%d,\"y\":%d}",session,x,y);return post_web("/click",b);}
+static int remote_click_count(int x,int y,int count){char b[288];snprintf(b,sizeof(b),"{\"session\":\"%s\",\"x\":%d,\"y\":%d,\"count\":%d}",session,x,y,count);return post_web("/click",b);}
+static int remote_click(int x,int y){return remote_click_count(x,y,1);}
+static int remote_zoom(int delta){char b[192];snprintf(b,sizeof(b),"{\"session\":\"%s\",\"delta\":%d}",session,delta);return post_web("/zoom",b);}
 static int remote_scroll(int dx,int dy){char b[256];snprintf(b,sizeof(b),"{\"session\":\"%s\",\"dx\":%d,\"dy\":%d}",session,dx,dy);return post_web("/scroll",b);}
 
 /* RC44: one round-trip scroll + screenshot. This avoids the old
@@ -279,7 +287,7 @@ static void draw_settings_spotify(void){
 static void draw_settings_controls(void){
  draw_settings_header("Controls");
  const char *rows[]={
-  "X        Select / click",
+  "X        Select / double-click",
   "O        Back / close",
   "Square   Open keyboard",
   "Triangle Search / submit",
@@ -290,7 +298,7 @@ static void draw_settings_controls(void){
  };
  for(int i=0;i<8;i++)draw_text(48,86+i*38,RGBA8(242,245,244,255),0.70f,rows[i]);
  draw_text(48,408,RGBA8(35,235,110,255),0.66f,"TOUCH");
- draw_text(48,444,RGBA8(242,245,244,255),0.68f,"Links, tabs, search bar and Spotify controls");
+ draw_text(48,444,RGBA8(242,245,244,255),0.68f,"Tap/double-tap, pinch zoom, tabs and Spotify");
 }
 
 static void draw_settings_appearance(void){
@@ -302,7 +310,7 @@ static void draw_settings_appearance(void){
 
 static void draw_settings_about(void){
  draw_settings_header("About VitaSearch");
- draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC43");
+ draw_text(44,92,RGBA8(35,235,110,255),0.90f,"VitaSearch v0.99 RC45");
  draw_text(44,142,RGBA8(242,245,244,255),0.68f,"Modern web rendering through Chromium proxy.");
  draw_text(44,180,RGBA8(242,245,244,255),0.68f,"PS Vita native controls + touch.");
  draw_text(44,218,RGBA8(242,245,244,255),0.68f,"Spotify Connect integration.");
@@ -727,6 +735,24 @@ static void draw_browser_chrome(void){
 
 static void browser_touch(const SceTouchData *td, AppMode *mode, AppMode *return_mode, char *input, int *keysel){
  int down=td&&td->reportNum>0;
+
+ /* RC47 two-finger pinch: spread apart = zoom in, pinch together = zoom out. */
+ if(td&&td->reportNum>=2){
+   int x0=td->report[0].x*960/1920, y0=td->report[0].y*544/1088;
+   int x1=td->report[1].x*960/1920, y1=td->report[1].y*544/1088;
+   int dx=x1-x0,dy=y1-y0;
+   int dist=dx*dx+dy*dy; /* squared distance avoids sqrt/libm */
+   if(!pinch_active){pinch_active=1;pinch_last_dist=dist;}
+   else{
+     int delta=dist-pinch_last_dist;
+     if(delta>7000){remote_zoom(+10);pinch_last_dist=dist;refresh_frame();}
+     else if(delta<-7000){remote_zoom(-10);pinch_last_dist=dist;refresh_frame();}
+   }
+   browser_touch_down=1;
+   return;
+ }
+ if(pinch_active){pinch_active=0;pinch_last_dist=0;browser_touch_down=down;return;}
+
  if(down&&!browser_touch_down){
    int x=td->report[0].x*960/1920;
    int y=td->report[0].y*544/1088;
@@ -742,16 +768,19 @@ static void browser_touch(const SceTouchData *td, AppMode *mode, AppMode *return
        }
      }
    }
-   /* Search/address bar: tap opens keyboard. */
    else if(y>=34&&y<=82){
      open_search_keyboard(mode,return_mode,input,keysel);
    } else if(y<468){
-     /* Web content: touch acts as mouse click. */
-     cursor_x=x;
-     cursor_y=y;
+     cursor_x=x; cursor_y=y;
      cursor_fx=(float)x; cursor_fy=(float)y;
      cursor_vx=cursor_vy=0.0f;
-     remote_click(x,y);
+
+     /* Single tap selects/clicks; a quick second tap at the same spot becomes double-click. */
+     unsigned int now=sceKernelGetProcessTimeLow();
+     int ddx=x-last_touch_x,ddy=y-last_touch_y;
+     int dbl=(last_touch_click_us!=0 && (unsigned int)(now-last_touch_click_us)<360000U && (ddx*ddx+ddy*ddy)<900);
+     remote_click_count(x,y,dbl?2:1);
+     last_touch_click_us=now;last_touch_x=x;last_touch_y=y;
      refresh_frame();
    }
  }
@@ -842,7 +871,7 @@ int main(void){sceSysmoduleLoadModule(SCE_SYSMODULE_NET);sceSysmoduleLoadModule(
  if(online){network_probe();refresh_spotify_status();}
  snprintf(browser_tabs[0].title,sizeof(browser_tabs[0].title),"Start");if(online){refresh_frame();spotify_refresh();}
  AppMode return_mode=MODE_WEB;unsigned int old=0;int counter=0,keysel=0;char input[INPUT_MAX+1]="";
- for(;;){finish_reconnect_if_ready();SceCtrlData pad;sceCtrlPeekBufferPositiveExt(0,&pad,1);unsigned int pressed=pad.buttons&~old;old=pad.buttons;if((pad.buttons&SCE_CTRL_START)&&(pad.buttons&SCE_CTRL_SELECT))break;
+ for(;;){finish_reconnect_if_ready();SceCtrlData pad;sceCtrlPeekBufferPositive(0,&pad,1);unsigned int pressed=pad.buttons&~old;old=pad.buttons;if((pad.buttons&SCE_CTRL_START)&&(pad.buttons&SCE_CTRL_SELECT))break;
   if(mode==MODE_KEYBOARD){int row=keysel/KEY_COLS,col=keysel%KEY_COLS;if(pressed&SCE_CTRL_LEFT)col=(col+9)%10;if(pressed&SCE_CTRL_RIGHT)col=(col+1)%10;if(pressed&SCE_CTRL_UP)row=row>0?row-1:5;if(pressed&SCE_CTRL_DOWN)row=row<5?row+1:0;keysel=row*10+col;if(keysel>=KEY_COUNT)keysel=KEY_COUNT-1;if(pressed&SCE_CTRL_CIRCLE){if(keyboard_purpose==2||keyboard_purpose==3){keyboard_purpose=0;search_keyboard_open=0;mode=return_mode;}else if(return_mode==MODE_WEB)close_search_keyboard(&mode,return_mode,input);else mode=return_mode;}else if(pressed&SCE_CTRL_TRIANGLE){if(keyboard_purpose==2)submit_proxy_keyboard(return_mode,input);else if(keyboard_purpose==3)submit_api_key_keyboard(return_mode,input);else if(return_mode==MODE_WEB)submit_search_keyboard(&mode,return_mode,input);else{if(input[0]){result_count=spotify_search(proxy,input,results,RESULT_MAX);result_selected=0;search_view=1;spotify_refresh();}mode=return_mode;}}else if(pressed&SCE_CTRL_CROSS){if(keysel==KEY_COUNT-1){if(keyboard_purpose==2)submit_proxy_keyboard(return_mode,input);else if(keyboard_purpose==3)submit_api_key_keyboard(return_mode,input);else if(return_mode==MODE_WEB)submit_search_keyboard(&mode,return_mode,input);else{if(input[0]){result_count=spotify_search(proxy,input,results,RESULT_MAX);result_selected=0;search_view=1;spotify_refresh();}mode=return_mode;}}else if(!strcmp(keys[keysel],"<")){size_t n=strlen(input);if(n)input[n-1]=0;}else append_input(input,keys[keysel]);}if(mode==MODE_KEYBOARD){SceTouchData ktd;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&ktd,1);keyboard_touch_input(&ktd,&mode,return_mode,input,&keysel);}}
   else if(mode==MODE_WEB){if(pressed&SCE_CTRL_START){mode=MODE_SPOTIFY;if(online)spotify_refresh();}else if(pressed&SCE_CTRL_SELECT){mode=MODE_SETTINGS;settings_page=0;settings_selected=0;settings_status[0]=0;}else if(!online){
  if(pressed&SCE_CTRL_SELECT){open_settings_root();}
@@ -857,21 +886,21 @@ int main(void){sceSysmoduleLoadModule(SCE_SYSMODULE_NET);sceSysmoduleLoadModule(
  offline_touch_down=offline_touch_now;
  /* RC39: restore authenticated /session creation; statuses remain independent. */
 }else if(online){
- /* RC43: smooth local analog cursor. A filtered velocity removes raw-stick jitter,
-    while a nonlinear speed curve keeps small movements precise and full tilt fast. */
+ /* RC47: standard controller sampling reliably reports the built-in L-stick.
+    Lower deadzone + responsive filtering keeps movement smooth without feeling stuck. */
  int ax=(int)pad.lx-128,ay=(int)pad.ly-128;
- const int dead=18;
+ const int dead=12;
  float tx=0.0f,ty=0.0f;
  if(ax>dead||ax<-dead){float n=(float)(ax>0?ax-dead:ax+dead)/(128.0f-dead);tx=n*(2.0f+7.5f*(n<0?-n:n));}
  if(ay>dead||ay<-dead){float n=(float)(ay>0?ay-dead:ay+dead)/(128.0f-dead);ty=n*(2.0f+7.5f*(n<0?-n:n));}
- cursor_vx=cursor_vx*0.68f+tx*0.32f;
- cursor_vy=cursor_vy*0.68f+ty*0.32f;
+ cursor_vx=cursor_vx*0.55f+tx*0.45f;
+ cursor_vy=cursor_vy*0.55f+ty*0.45f;
  if(tx==0.0f&&cursor_vx<0.12f&&cursor_vx>-0.12f)cursor_vx=0.0f;
  if(ty==0.0f&&cursor_vy<0.12f&&cursor_vy>-0.12f)cursor_vy=0.0f;
  cursor_fx+=cursor_vx; cursor_fy+=cursor_vy;
  if(cursor_fx<0)cursor_fx=0;if(cursor_fx>959)cursor_fx=959;
  if(cursor_fy<82)cursor_fy=82;if(cursor_fy>467)cursor_fy=467;
- cursor_x=(int)(cursor_fx+0.5f);cursor_y=(int)(cursor_fy+0.5f);/* RC44: Up/Down scroll while HELD, with smaller accelerated steps and a single scroll+frame request. */int scroll_dir=0;if(pad.buttons&SCE_CTRL_UP)scroll_dir=-1;else if(pad.buttons&SCE_CTRL_DOWN)scroll_dir=1;if(scroll_dir){if(scroll_hold_dir!=scroll_dir){scroll_hold_dir=scroll_dir;scroll_hold_ticks=0;}scroll_hold_ticks++;int step=(scroll_hold_ticks<7)?46:((scroll_hold_ticks<18)?70:100);remote_scroll_frame(scroll_dir*step);}else{scroll_hold_dir=0;scroll_hold_ticks=0;}if(pressed&SCE_CTRL_LEFT&&browser_tab_count>1){int ni=browser_tab_active-1;if(ni<0)ni=browser_tab_count-1;tab_select(ni);}if(pressed&SCE_CTRL_RIGHT&&browser_tab_count>1){int ni=(browser_tab_active+1)%browser_tab_count;tab_select(ni);}if(pressed&SCE_CTRL_CROSS){remote_click(cursor_x,cursor_y);refresh_frame();}if(pressed&SCE_CTRL_LTRIGGER){remote_simple("/back");refresh_frame();}if(pressed&SCE_CTRL_RTRIGGER){remote_simple("/forward");refresh_frame();}if(pressed&SCE_CTRL_SQUARE){open_search_keyboard(&mode,&return_mode,input,&keysel);}if(pressed&SCE_CTRL_TRIANGLE){if(search_text[0]){open_target(search_text);refresh_frame();}else open_search_keyboard(&mode,&return_mode,input,&keysel);}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);browser_touch(&td,&mode,&return_mode,input,&keysel);/* RC43: stagger blocking HTTP refreshes so the pointer does not freeze every ~2s. */
+ cursor_x=(int)(cursor_fx+0.5f);cursor_y=(int)(cursor_fy+0.5f);/* RC44: Up/Down scroll while HELD, with smaller accelerated steps and a single scroll+frame request. */int scroll_dir=0;if(pad.buttons&SCE_CTRL_UP)scroll_dir=-1;else if(pad.buttons&SCE_CTRL_DOWN)scroll_dir=1;if(scroll_dir){if(scroll_hold_dir!=scroll_dir){scroll_hold_dir=scroll_dir;scroll_hold_ticks=0;}scroll_hold_ticks++;int step=(scroll_hold_ticks<7)?46:((scroll_hold_ticks<18)?70:100);remote_scroll_frame(scroll_dir*step);}else{scroll_hold_dir=0;scroll_hold_ticks=0;}if(pressed&SCE_CTRL_LEFT&&browser_tab_count>1){int ni=browser_tab_active-1;if(ni<0)ni=browser_tab_count-1;tab_select(ni);}if(pressed&SCE_CTRL_RIGHT&&browser_tab_count>1){int ni=(browser_tab_active+1)%browser_tab_count;tab_select(ni);}if(pressed&SCE_CTRL_CROSS){unsigned int now=sceKernelGetProcessTimeLow();int ddx=cursor_x-last_x_click_x,ddy=cursor_y-last_x_click_y;int dbl=(last_x_click_us!=0&&(unsigned int)(now-last_x_click_us)<360000U&&(ddx*ddx+ddy*ddy)<900);remote_click_count(cursor_x,cursor_y,dbl?2:1);last_x_click_us=now;last_x_click_x=cursor_x;last_x_click_y=cursor_y;refresh_frame();}if(pressed&SCE_CTRL_LTRIGGER){remote_simple("/back");refresh_frame();}if(pressed&SCE_CTRL_RTRIGGER){remote_simple("/forward");refresh_frame();}if(pressed&SCE_CTRL_SQUARE){open_search_keyboard(&mode,&return_mode,input,&keysel);}if(pressed&SCE_CTRL_TRIANGLE){if(search_text[0]){open_target(search_text);refresh_frame();}else open_search_keyboard(&mode,&return_mode,input,&keysel);}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);browser_touch(&td,&mode,&return_mode,input,&keysel);/* RC43: stagger blocking HTTP refreshes so the pointer does not freeze every ~2s. */
 if(++counter==120){refresh_frame();}
 else if(counter==150){spotify_refresh();}
 else if(counter==180){network_probe();}
