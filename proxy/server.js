@@ -430,7 +430,7 @@ app.post('/focus-click', requireKey, async (req,res)=>{
         const autocomplete=String(el.getAttribute('autocomplete')||'').toLowerCase();
         const name=String(el.getAttribute('name')||'').toLowerCase();
         const id=String(el.id||'').toLowerCase();
-        const sensitive=type==='password'||type==='email'||/password|passwd|passcode|username|email|login/.test(`${autocomplete} ${name} ${id}`);
+        const sensitive=type==='password'||/password|passwd|passcode|pin|otp|one-time-code|current-password|new-password/.test(`${type} ${autocomplete} ${name} ${id}`);
         let value='';
         // Never return an existing password to the Vita or API response.
         if(type!=='password'){if(el.isContentEditable)value=el.innerText||'';else value=String(el.value||'');}
@@ -456,7 +456,7 @@ app.post('/input-set-frame', requireKey, async(req,res)=>{
       count=await field.count().catch(()=>0);
     }
     if(!count)return res.status(400).json({ok:false,error:'Focused element is not editable'});
-    const security=await field.evaluate(el=>{const type=String(el.type||'').toLowerCase();const autocomplete=String(el.getAttribute('autocomplete')||'').toLowerCase();const name=String(el.getAttribute('name')||'').toLowerCase();const id=String(el.id||'').toLowerCase();return {sensitive:type==='password'||type==='email'||/password|passwd|passcode|username|email|login/.test(`${autocomplete} ${name} ${id}`),password:type==='password'};}).catch(()=>({sensitive:false,password:false}));
+    const security=await field.evaluate(el=>{const type=String(el.type||'').toLowerCase();const autocomplete=String(el.getAttribute('autocomplete')||'').toLowerCase();const name=String(el.getAttribute('name')||'').toLowerCase();const id=String(el.id||'').toLowerCase();return {sensitive:type==='password'||/password|passwd|passcode|pin|otp|one-time-code|current-password|new-password/.test(`${type} ${autocomplete} ${name} ${id}`),password:type==='password'};}).catch(()=>({sensitive:false,password:false}));
     const pageHttps=String(page.url()||'').startsWith('https://');
     if(security.sensitive && (!pageHttps || !req.secure)){
       console.warn('[secure-login] blocked credential entry: HTTPS required on both website and Vita-to-proxy connection');
