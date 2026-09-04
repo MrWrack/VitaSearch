@@ -19,7 +19,7 @@
 #define SCREEN_H 544
 #define INPUT_MAX 255
 #define RESULT_MAX 8
-#define VITASEARCH_RELEASE "VitaSearch v0.99 RC56"
+#define VITASEARCH_RELEASE "VitaSearch v0.99 RC57"
 
 typedef enum { MODE_WEB=0, MODE_SPOTIFY=1, MODE_KEYBOARD=2, MODE_SETTINGS=3 } AppMode;
 static AppMode mode=MODE_WEB;
