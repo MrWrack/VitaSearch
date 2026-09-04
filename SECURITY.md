@@ -23,3 +23,9 @@ Do not post API keys, Spotify tokens, cookies or private URLs in public GitHub i
 
 ## HTTPS
 VitaSearch 0.7 supports TLS 1.2+ between the Vita and proxy. Certificate and hostname verification stay enabled. Custom CA certificates can be supplied via line 3 of the Vita config. Never commit private TLS keys or real API keys.
+
+## RC55 Secure Account Login
+
+For account sign-in (for example Gmail, Microsoft, Spotify or other sites), VitaSearch now treats email/username/password-style fields as sensitive. Credential entry is allowed only when **both** the website is HTTPS and the Vita-to-proxy connection is HTTPS. Password values are never returned by `/focus-click`, password text is masked on the Vita keyboard, API responses use `no-store`, and browser logs redact URL query strings.
+
+This protects credentials in transit but does not guarantee that a provider will accept automated/headless Chromium sign-in. Google and other providers may require additional verification or refuse automated browser sessions. Keep certificate verification enabled and use a trusted CA configured on the Vita.

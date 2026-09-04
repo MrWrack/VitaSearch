@@ -19,7 +19,7 @@
 #define SCREEN_H 544
 #define INPUT_MAX 255
 #define RESULT_MAX 8
-#define VITASEARCH_RELEASE "VitaSearch v0.99 RC53"
+#define VITASEARCH_RELEASE "VitaSearch v0.99 RC55"
 
 typedef enum { MODE_WEB=0, MODE_SPOTIFY=1, MODE_KEYBOARD=2, MODE_SETTINGS=3 } AppMode;
 static AppMode mode=MODE_WEB;
@@ -94,9 +94,13 @@ static int refresh_frame(void);
 static int network_probe(void);
 static const char *reconnect_stage_text(void);
 
-static const char *keys[]={"1","2","3","4","5","6","7","8","9","0","q","w","e","r","t","y","u","i","o","p","a","s","d","f","g","h","j","k","l",".","z","x","c","v","b","n","m","/","-","_",":","?","&","=","%","+","@","#"," ","<","GO"};
+static const char *keys[]={"1","2","3","4","5","6","7","8","9","0","q","w","e","r","t","y","u","i","o","p","a","s","d","f","g","h","j","k","l",".","z","x","c","v","b","n","m","/","-","_",":","?","&","=","%","+","@","#","!","CAPS","SPACE","<","GO"};
 #define KEY_COUNT ((int)(sizeof(keys)/sizeof(keys[0])))
 #define KEY_COLS 10
+static int keyboard_caps=0;
+static int web_field_sensitive=0;
+static int web_field_password=0;
+static int web_field_secure_login=0;
 
 static void draw_text(float x,float y,unsigned int c,float scale,const char*t){if(font)vita2d_pgf_draw_text(font,x,y,c,scale,t?t:"");}
 static void json_escape(const char *src,char *dst,size_t cap){size_t j=0;for(size_t i=0;src[i]&&j+2<cap;i++){unsigned char c=src[i];if(c=='"'||c=='\\')dst[j++]='\\';if(c>=32)dst[j++]=c;}dst[j]=0;}
@@ -106,7 +110,7 @@ static int json_get_string(const char *json,const char *key,char *out,size_t cap
  if(!json||!key||!out||cap<1)return -1; char pat[96];snprintf(pat,sizeof(pat),"\"%s\":\"",key);const char*p=strstr(json,pat);if(!p)return-1;p+=strlen(pat);size_t j=0;while(*p&&j+1<cap){if(*p=='\"')break;if(*p=='\\'&&p[1]){p++;if(*p=='n')out[j++]='\n';else if(*p=='r')out[j++]='\r';else if(*p=='t')out[j++]='\t';else out[j++]=*p;p++;continue;}out[j++]=*p++;}out[j]=0;return 0;
 }
 static int remote_focus_click(int x,int y,char *value,size_t value_cap){
- char url[512],body[256];snprintf(url,sizeof(url),"%s/focus-click",proxy);snprintf(body,sizeof(body),"{\"session\":\"%s\",\"x\":%d,\"y\":%d}",session,x,y);NetBuffer b;memset(&b,0,sizeof(b));if(net_post_json(url,body,&b)!=0)return -1;int editable=0;if(b.data){extract_session((char*)b.data);editable=strstr((char*)b.data,"\"editable\":true")!=NULL;if(editable&&value&&value_cap)json_get_string((char*)b.data,"value",value,value_cap);}net_buffer_free(&b);return editable;
+ char url[512],body[256];snprintf(url,sizeof(url),"%s/focus-click",proxy);snprintf(body,sizeof(body),"{\"session\":\"%s\",\"x\":%d,\"y\":%d}",session,x,y);NetBuffer b;memset(&b,0,sizeof(b));if(net_post_json(url,body,&b)!=0)return -1;int editable=0;web_field_sensitive=0;web_field_password=0;web_field_secure_login=0;if(b.data){extract_session((char*)b.data);editable=strstr((char*)b.data,"\"editable\":true")!=NULL;web_field_sensitive=strstr((char*)b.data,"\"sensitive\":true")!=NULL;web_field_password=strstr((char*)b.data,"\"password\":true")!=NULL;web_field_secure_login=strstr((char*)b.data,"\"secureLogin\":true")!=NULL;if(editable&&value&&value_cap&&!web_field_password)json_get_string((char*)b.data,"value",value,value_cap);}net_buffer_free(&b);return editable;
 }
 static int remote_set_focused_input_frame(const char *text){
  char url[512],esc[1536],body[1900];json_escape(text?text:"",esc,sizeof(esc));snprintf(url,sizeof(url),"%s/input-set-frame",proxy);snprintf(body,sizeof(body),"{\"session\":\"%s\",\"text\":\"%s\",\"submit\":true}",session,esc);NetBuffer b;memset(&b,0,sizeof(b));if(net_post_json(url,body,&b)!=0)return -1;vita2d_texture*t=vita2d_load_PNG_buffer(b.data);net_buffer_free(&b);if(!t)return -1;if(frame)vita2d_free_texture(frame);frame=t;return 0;
@@ -220,6 +224,12 @@ static int tab_close(int index){
 }
 static int refresh_frame(void){char u[512];snprintf(u,sizeof(u),"%s/frame?session=%s",proxy,session);NetBuffer b;if(net_get(u,&b)!=0)return-1;vita2d_texture*t=vita2d_load_PNG_buffer(b.data);net_buffer_free(&b);if(!t)return-1;if(frame)vita2d_free_texture(frame);frame=t;return 0;}
 static void append_input(char*i,const char*p){if(strlen(i)+strlen(p)<INPUT_MAX)strcat(i,p);}
+static void append_keyboard_key(char *input,const char *key){
+ if(!strcmp(key,"CAPS")){keyboard_caps=!keyboard_caps;return;}
+ if(!strcmp(key,"SPACE")){append_input(input," ");return;}
+ if(strlen(key)==1 && key[0]>='a' && key[0]<='z' && keyboard_caps){char t[2]={(char)(key[0]-'a'+'A'),0};append_input(input,t);return;}
+ append_input(input,key);
+}
 
 static void refresh_spotify_status(void){
  spotify_status_rc=spotify_status_fetch(proxy,&spotify_status);
@@ -621,7 +631,22 @@ static int spotify_login_web(void){
  return 0;
 }
 
-static void keyboard_draw(const char*input,int sel,const char*title){vita2d_draw_rectangle(0,0,960,544,RGBA8(10,12,16,255));draw_text(30,30,RGBA8(40,240,120,255),1.0f,title);vita2d_draw_rectangle(28,46,904,58,RGBA8(25,30,38,255));draw_text(42,84,RGBA8(235,245,240,255),1.0f,input[0]?input:"Type...");for(int i=0;i<KEY_COUNT;i++){int r=i/KEY_COLS,c=i%KEY_COLS;float x=30+c*90,y=126+r*64,w=i==KEY_COUNT-1?180:78;vita2d_draw_rectangle(x,y,w,49,i==sel?RGBA8(30,230,110,255):RGBA8(38,44,54,255));draw_text(x+22,y+33,i==sel?RGBA8(0,20,10,255):RGBA8(240,240,240,255),0.9f,keys[i]);}draw_text(30,527,RGBA8(170,180,190,255),0.72f,"D-pad move   X type/select   O close   Triangle search");}
+static void keyboard_draw(const char*input,int sel,const char*title){
+ vita2d_draw_rectangle(0,0,960,544,RGBA8(10,12,16,255));
+ draw_text(30,30,RGBA8(40,240,120,255),1.0f,title);
+ vita2d_draw_rectangle(28,46,904,58,RGBA8(25,30,38,255));
+ draw_text(42,84,RGBA8(235,245,240,255),1.0f,input[0]?input:"Type...");
+ for(int i=0;i<KEY_COUNT;i++){
+  int r=i/KEY_COLS,c=i%KEY_COLS;float x=30+c*90,y=126+r*64,w=78;
+  unsigned int bg=i==sel?RGBA8(30,230,110,255):RGBA8(38,44,54,255);
+  if(!strcmp(keys[i],"CAPS")&&keyboard_caps)bg=RGBA8(30,230,110,255);
+  vita2d_draw_rectangle(x,y,w,49,bg);
+  const char *label=keys[i];char upper[2]={0,0};
+  if(strlen(label)==1&&label[0]>='a'&&label[0]<='z'&&keyboard_caps){upper[0]=(char)(label[0]-'a'+'A');label=upper;}
+  draw_text(x+(!strcmp(keys[i],"SPACE")?9:(!strcmp(keys[i],"CAPS")?12:22)),y+33,(i==sel||(!strcmp(keys[i],"CAPS")&&keyboard_caps))?RGBA8(0,20,10,255):RGBA8(240,240,240,255),!strcmp(keys[i],"SPACE")?0.58f:(!strcmp(keys[i],"CAPS")?0.62f:0.9f),label);
+ }
+ draw_text(30,527,RGBA8(170,180,190,255),0.68f,keyboard_caps?"CAPS ON   D-pad move   X type/select   O close   Triangle GO":"CAPS off   D-pad move   X type/select   O close   Triangle GO");
+}
 
 static void draw_progress(int y){float pct=sp.duration_ms>0?(float)sp.progress_ms/sp.duration_ms:0;if(pct<0)pct=0;if(pct>1)pct=1;vita2d_draw_rectangle(250,y,650,8,RGBA8(45,55,62,255));vita2d_draw_rectangle(250,y,650*pct,8,RGBA8(35,235,110,255));}
 static void draw_mini_player(void){vita2d_draw_rectangle(0,500,960,44,RGBA8(11,15,18,245));draw_text(18,528,RGBA8(245,245,245,255),0.66f,sp.title[0]?sp.title:"Spotify");draw_text(690,528,RGBA8(35,235,110,255),0.66f,sp.playing?"X Pause":"X Play");draw_text(800,528,RGBA8(190,200,195,255),0.54f,"START Spotify");}
@@ -639,6 +664,7 @@ static void open_search_keyboard(AppMode *mode,AppMode *return_mode,char *input,
  *return_mode=MODE_WEB;
  *mode=MODE_KEYBOARD;
  *keysel=0;
+ keyboard_caps=0;
  search_keyboard_open=1;
  strncpy(input,search_text,511);
  input[511]=0;
@@ -658,15 +684,17 @@ static void submit_search_keyboard(AppMode *mode,AppMode return_mode,char *input
 }
 
 static void open_web_field_keyboard(AppMode *mode,AppMode *return_mode,char *input,int *keysel,const char *value){
- *return_mode=MODE_WEB;*mode=MODE_KEYBOARD;*keysel=0;keyboard_purpose=4;search_keyboard_open=1;strncpy(input,value?value:"",INPUT_MAX);input[INPUT_MAX]=0;
+ if(web_field_sensitive&&!web_field_secure_login){snprintf(nav_status,sizeof(nav_status),"Secure login: use HTTPS proxy + HTTPS website");return;}
+ *return_mode=MODE_WEB;*mode=MODE_KEYBOARD;*keysel=0;keyboard_caps=0;keyboard_purpose=4;search_keyboard_open=1;if(web_field_password)input[0]=0;else{strncpy(input,value?value:"",INPUT_MAX);input[INPUT_MAX]=0;}
 }
 static void submit_web_field_keyboard(AppMode *mode,AppMode return_mode,char *input){
- if(remote_set_focused_input_frame(input)!=0)snprintf(nav_status,sizeof(nav_status),"Could not type into web field");keyboard_purpose=0;search_keyboard_open=0;*mode=return_mode;
+ if(remote_set_focused_input_frame(input)!=0)snprintf(nav_status,sizeof(nav_status),web_field_sensitive?"Secure login blocked/failed - HTTPS required":"Could not type into web field");keyboard_purpose=0;search_keyboard_open=0;*mode=return_mode;
 }
 static void open_proxy_keyboard(AppMode *return_mode,char *input,int *keysel){
  *return_mode=MODE_SETTINGS;
  mode=MODE_KEYBOARD;
  *keysel=0;
+ keyboard_caps=0;
  keyboard_purpose=2;
  search_keyboard_open=1;
  strncpy(input,proxy,INPUT_MAX);
@@ -694,6 +722,7 @@ static void open_api_key_keyboard(AppMode *return_mode,char *input,int *keysel){
  *return_mode=MODE_SETTINGS;
  mode=MODE_KEYBOARD;
  *keysel=0;
+ keyboard_caps=0;
  keyboard_purpose=3;
  search_keyboard_open=1;
  strncpy(input,api_key,INPUT_MAX);
@@ -838,7 +867,7 @@ static void browser_touch(const SceTouchData *td, AppMode *mode, AppMode *return
      cursor_fx=(float)x; cursor_fy=(float)y;
      cursor_vx=cursor_vy=0.0f;
 
-     /* RC53: editable HTML fields open VitaSearch keyboard; other elements are clicked normally by the proxy. */
+     /* RC54: editable HTML fields open VitaSearch keyboard; other elements are clicked normally by the proxy. */
      char field_value[INPUT_MAX+1]={0};
      int editable=remote_focus_click(x,y,field_value,sizeof(field_value));
      if(editable>0){open_web_field_keyboard(mode,return_mode,input,keysel,field_value);}
@@ -859,9 +888,6 @@ static void keyboard_touch_input(const SceTouchData *td,AppMode *mode_ptr,AppMod
      int row=(y-126)/64;
      int col=(x-30)/90;
      int idx=row*KEY_COLS+col;
-     if(row==5){
-       if(x>=30 && x<=210) idx=KEY_COUNT-1; else idx=-1;
-     }
      if(idx>=0 && idx<KEY_COUNT){
        *keysel=idx;
        if(idx==KEY_COUNT-1){
@@ -875,7 +901,7 @@ static void keyboard_touch_input(const SceTouchData *td,AppMode *mode_ptr,AppMod
          }
        }else if(!strcmp(keys[idx],"<")){
          size_t n=strlen(input);if(n)input[n-1]=0;
-       }else append_input(input,keys[idx]);
+       }else append_keyboard_key(input,keys[idx]);
      }
    }
  }
@@ -934,7 +960,7 @@ int main(void){sceSysmoduleLoadModule(SCE_SYSMODULE_NET);sceSysmoduleLoadModule(
  snprintf(browser_tabs[0].title,sizeof(browser_tabs[0].title),"Start");if(online){refresh_frame();spotify_refresh();}
  AppMode return_mode=MODE_WEB;unsigned int old=0;int counter=0,keysel=0;char input[INPUT_MAX+1]="";
  for(;;){finish_reconnect_if_ready();finish_nav_if_ready();SceCtrlData pad;memset(&pad,0,sizeof(pad));int pad_count=sceCtrlPeekBufferPositive(0,&pad,1);if(pad_count<1){pad.buttons=old;pad.lx=128;pad.ly=128;}unsigned int pressed=pad.buttons&~old;old=pad.buttons;if((pad.buttons&SCE_CTRL_START)&&(pad.buttons&SCE_CTRL_SELECT))break;
-  if(mode==MODE_KEYBOARD){int row=keysel/KEY_COLS,col=keysel%KEY_COLS;if(pressed&SCE_CTRL_LEFT)col=(col+9)%10;if(pressed&SCE_CTRL_RIGHT)col=(col+1)%10;if(pressed&SCE_CTRL_UP)row=row>0?row-1:5;if(pressed&SCE_CTRL_DOWN)row=row<5?row+1:0;keysel=row*10+col;if(keysel>=KEY_COUNT)keysel=KEY_COUNT-1;if(pressed&SCE_CTRL_CIRCLE){if(keyboard_purpose==2||keyboard_purpose==3||keyboard_purpose==4){keyboard_purpose=0;search_keyboard_open=0;mode=return_mode;}else if(return_mode==MODE_WEB)close_search_keyboard(&mode,return_mode,input);else mode=return_mode;}else if(pressed&SCE_CTRL_TRIANGLE){if(keyboard_purpose==2)submit_proxy_keyboard(return_mode,input);else if(keyboard_purpose==3)submit_api_key_keyboard(return_mode,input);else if(keyboard_purpose==4)submit_web_field_keyboard(&mode,return_mode,input);else if(return_mode==MODE_WEB)submit_search_keyboard(&mode,return_mode,input);else{if(input[0]){result_count=spotify_search(proxy,input,results,RESULT_MAX);result_selected=0;search_view=1;spotify_refresh();}mode=return_mode;}}else if(pressed&SCE_CTRL_CROSS){if(keysel==KEY_COUNT-1){if(keyboard_purpose==2)submit_proxy_keyboard(return_mode,input);else if(keyboard_purpose==3)submit_api_key_keyboard(return_mode,input);else if(keyboard_purpose==4)submit_web_field_keyboard(&mode,return_mode,input);else if(return_mode==MODE_WEB)submit_search_keyboard(&mode,return_mode,input);else{if(input[0]){result_count=spotify_search(proxy,input,results,RESULT_MAX);result_selected=0;search_view=1;spotify_refresh();}mode=return_mode;}}else if(!strcmp(keys[keysel],"<")){size_t n=strlen(input);if(n)input[n-1]=0;}else append_input(input,keys[keysel]);}if(mode==MODE_KEYBOARD){SceTouchData ktd;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&ktd,1);keyboard_touch_input(&ktd,&mode,return_mode,input,&keysel);}}
+  if(mode==MODE_KEYBOARD){int row=keysel/KEY_COLS,col=keysel%KEY_COLS;if(pressed&SCE_CTRL_LEFT)col=(col+9)%10;if(pressed&SCE_CTRL_RIGHT)col=(col+1)%10;if(pressed&SCE_CTRL_UP)row=row>0?row-1:5;if(pressed&SCE_CTRL_DOWN)row=row<5?row+1:0;keysel=row*10+col;if(keysel>=KEY_COUNT)keysel=KEY_COUNT-1;if(pressed&SCE_CTRL_CIRCLE){if(keyboard_purpose==2||keyboard_purpose==3||keyboard_purpose==4){keyboard_purpose=0;search_keyboard_open=0;mode=return_mode;}else if(return_mode==MODE_WEB)close_search_keyboard(&mode,return_mode,input);else mode=return_mode;}else if(pressed&SCE_CTRL_TRIANGLE){if(keyboard_purpose==2)submit_proxy_keyboard(return_mode,input);else if(keyboard_purpose==3)submit_api_key_keyboard(return_mode,input);else if(keyboard_purpose==4)submit_web_field_keyboard(&mode,return_mode,input);else if(return_mode==MODE_WEB)submit_search_keyboard(&mode,return_mode,input);else{if(input[0]){result_count=spotify_search(proxy,input,results,RESULT_MAX);result_selected=0;search_view=1;spotify_refresh();}mode=return_mode;}}else if(pressed&SCE_CTRL_CROSS){if(keysel==KEY_COUNT-1){if(keyboard_purpose==2)submit_proxy_keyboard(return_mode,input);else if(keyboard_purpose==3)submit_api_key_keyboard(return_mode,input);else if(keyboard_purpose==4)submit_web_field_keyboard(&mode,return_mode,input);else if(return_mode==MODE_WEB)submit_search_keyboard(&mode,return_mode,input);else{if(input[0]){result_count=spotify_search(proxy,input,results,RESULT_MAX);result_selected=0;search_view=1;spotify_refresh();}mode=return_mode;}}else if(!strcmp(keys[keysel],"<")){size_t n=strlen(input);if(n)input[n-1]=0;}else append_keyboard_key(input,keys[keysel]);}if(mode==MODE_KEYBOARD){SceTouchData ktd;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&ktd,1);keyboard_touch_input(&ktd,&mode,return_mode,input,&keysel);}}
   else if(mode==MODE_WEB){if(pressed&SCE_CTRL_START){mode=MODE_SPOTIFY;if(online)spotify_refresh();}else if(pressed&SCE_CTRL_SELECT){mode=MODE_SETTINGS;settings_page=0;settings_selected=0;settings_status[0]=0;}else if(!online){
  if(pressed&SCE_CTRL_SELECT){open_settings_root();}
  else if(pressed&SCE_CTRL_CROSS||pressed&SCE_CTRL_TRIANGLE){reconnect_refresh();}
@@ -962,7 +988,7 @@ int main(void){sceSysmoduleLoadModule(SCE_SYSMODULE_NET);sceSysmoduleLoadModule(
  cursor_fx+=cursor_vx; cursor_fy+=cursor_vy;
  if(cursor_fx<0)cursor_fx=0;if(cursor_fx>959)cursor_fx=959;
  if(cursor_fy<82)cursor_fy=82;if(cursor_fy>499)cursor_fy=499;
- cursor_x=(int)(cursor_fx+0.5f);cursor_y=(int)(cursor_fy+0.5f);/* RC44: Up/Down scroll while HELD, with smaller accelerated steps and a single scroll+frame request. */int scroll_dir=0;if(pad.buttons&SCE_CTRL_UP)scroll_dir=-1;else if(pad.buttons&SCE_CTRL_DOWN)scroll_dir=1;if(scroll_dir){if(scroll_hold_dir!=scroll_dir){scroll_hold_dir=scroll_dir;scroll_hold_ticks=0;}scroll_hold_ticks++;int step=(scroll_hold_ticks<7)?46:((scroll_hold_ticks<18)?70:100);remote_scroll_frame(scroll_dir*step);}else{scroll_hold_dir=0;scroll_hold_ticks=0;}if(pressed&SCE_CTRL_LEFT&&browser_tab_count>1){int ni=browser_tab_active-1;if(ni<0)ni=browser_tab_count-1;tab_select(ni);}if(pressed&SCE_CTRL_RIGHT&&browser_tab_count>1){int ni=(browser_tab_active+1)%browser_tab_count;tab_select(ni);}if(pressed&SCE_CTRL_CROSS){char field_value[INPUT_MAX+1]={0};int editable=remote_focus_click(cursor_x,cursor_y,field_value,sizeof(field_value));if(editable>0){open_web_field_keyboard(&mode,&return_mode,input,&keysel,field_value);}else{last_x_click_us=sceKernelGetProcessTimeLow();last_x_click_x=cursor_x;last_x_click_y=cursor_y;refresh_frame();}}if(pressed&SCE_CTRL_LTRIGGER){remote_simple("/back");refresh_frame();}if(pressed&SCE_CTRL_RTRIGGER){remote_simple("/forward");refresh_frame();}if(pressed&SCE_CTRL_SQUARE){open_search_keyboard(&mode,&return_mode,input,&keysel);}if(pressed&SCE_CTRL_TRIANGLE){if(search_text[0])start_nav_worker(1,search_text);else open_search_keyboard(&mode,&return_mode,input,&keysel);}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);browser_touch(&td,&mode,&return_mode,input,&keysel);/* RC53: Never perform periodic network I/O in the WEB input/render loop.
+ cursor_x=(int)(cursor_fx+0.5f);cursor_y=(int)(cursor_fy+0.5f);/* RC44: Up/Down scroll while HELD, with smaller accelerated steps and a single scroll+frame request. */int scroll_dir=0;if(pad.buttons&SCE_CTRL_UP)scroll_dir=-1;else if(pad.buttons&SCE_CTRL_DOWN)scroll_dir=1;if(scroll_dir){if(scroll_hold_dir!=scroll_dir){scroll_hold_dir=scroll_dir;scroll_hold_ticks=0;}scroll_hold_ticks++;int step=(scroll_hold_ticks<7)?46:((scroll_hold_ticks<18)?70:100);remote_scroll_frame(scroll_dir*step);}else{scroll_hold_dir=0;scroll_hold_ticks=0;}if(pressed&SCE_CTRL_LEFT&&browser_tab_count>1){int ni=browser_tab_active-1;if(ni<0)ni=browser_tab_count-1;tab_select(ni);}if(pressed&SCE_CTRL_RIGHT&&browser_tab_count>1){int ni=(browser_tab_active+1)%browser_tab_count;tab_select(ni);}if(pressed&SCE_CTRL_CROSS){char field_value[INPUT_MAX+1]={0};int editable=remote_focus_click(cursor_x,cursor_y,field_value,sizeof(field_value));if(editable>0){open_web_field_keyboard(&mode,&return_mode,input,&keysel,field_value);}else{last_x_click_us=sceKernelGetProcessTimeLow();last_x_click_x=cursor_x;last_x_click_y=cursor_y;refresh_frame();}}if(pressed&SCE_CTRL_LTRIGGER){remote_simple("/back");refresh_frame();}if(pressed&SCE_CTRL_RTRIGGER){remote_simple("/forward");refresh_frame();}if(pressed&SCE_CTRL_SQUARE){open_search_keyboard(&mode,&return_mode,input,&keysel);}if(pressed&SCE_CTRL_TRIANGLE){if(search_text[0])start_nav_worker(1,search_text);else open_search_keyboard(&mode,&return_mode,input,&keysel);}SceTouchData td;sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1);browser_touch(&td,&mode,&return_mode,input,&keysel);/* RC54: Never perform periodic network I/O in the WEB input/render loop.
    refresh_frame/network_probe/Spotify HTTP can block for hundreds of ms or seconds,
    which made the local L-stick cursor appear to freeze. Frames are refreshed only
    after explicit browser actions/navigation workers; status refresh happens outside

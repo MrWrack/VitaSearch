@@ -73,6 +73,7 @@ function b64url(buf) {
 function makeVerifier() { return b64url(crypto.randomBytes(64)); }
 function challenge(verifier) { return b64url(crypto.createHash('sha256').update(verifier).digest()); }
 function htmlEscape(s='') { return String(s).replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function safeLogUrl(raw='') { try { const u=new URL(String(raw)); return `${u.protocol}//${u.host}${u.pathname}`; } catch { return '[invalid-url]'; } }
 
 function safeEqual(a,b){
   const aa=Buffer.from(String(a||'')), bb=Buffer.from(String(b||''));
@@ -127,6 +128,8 @@ async function createSession(options={}) {
     viewport: { width: WIDTH, height: HEIGHT },
     deviceScaleFactor: 1,
     javaScriptEnabled: javascriptEnabled,
+    ignoreHTTPSErrors: false,
+    acceptDownloads: false,
     userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36 VitaSearchProxy/0.8'
   });
   await context.route('**/*', async route => {
@@ -398,7 +401,7 @@ app.post('/open-frame', requireKey, async (req, res) => {
     if (isSearch) { searchHistory.unshift({ q: raw.slice(0, 256), at: Date.now() }); if (searchHistory.length > SEARCH_HISTORY_MAX) searchHistory.length = SEARCH_HISTORY_MAX; }
     const url = normalizeTarget(raw, req.body?.search_engine || 'google', req.body?.use_selected_search !== false);
     await assertSafeUrl(url);
-    console.log('[open-frame]', raw.slice(0,120), '->', url.slice(0,180));
+    console.log('[open-frame]', raw && !/^https?:\/\//i.test(raw) ? '[search]' : safeLogUrl(raw), '->', safeLogUrl(url));
     try { await s.page.goto(url, { waitUntil: 'commit', timeout: 5500 }); }
     catch (e) { console.warn('[open-frame] navigation warning:', String(e?.message || e)); }
     await s.page.waitForTimeout(350).catch(()=>{});
@@ -421,22 +424,60 @@ app.post('/focus-click', requireKey, async (req,res)=>{
       let el=document.elementFromPoint(x,y);if(!el)return {editable:false};
       const tag=(el.tagName||'').toLowerCase();const type=String(el.type||'').toLowerCase();
       const editable=(tag==='textarea')||(tag==='input'&&!['button','submit','checkbox','radio','range','color','file','image','reset'].includes(type))||el.isContentEditable;
-      if(editable){el.focus();let value='';if(el.isContentEditable)value=el.innerText||'';else value=String(el.value||'');return {editable:true,value,type:el.isContentEditable?'contenteditable':type||tag};}
+      if(editable){
+        document.querySelectorAll('[data-vitasearch-focus="1"]').forEach(n=>n.removeAttribute('data-vitasearch-focus'));
+        el.setAttribute('data-vitasearch-focus','1');el.focus();
+        const autocomplete=String(el.getAttribute('autocomplete')||'').toLowerCase();
+        const name=String(el.getAttribute('name')||'').toLowerCase();
+        const id=String(el.id||'').toLowerCase();
+        const sensitive=type==='password'||type==='email'||/password|passwd|passcode|username|email|login/.test(`${autocomplete} ${name} ${id}`);
+        let value='';
+        // Never return an existing password to the Vita or API response.
+        if(type!=='password'){if(el.isContentEditable)value=el.innerText||'';else value=String(el.value||'');}
+        return {editable:true,value,type:el.isContentEditable?'contenteditable':type||tag,sensitive,password:type==='password',autocomplete};
+      }
       return {editable:false};
     },{x,y});
     if(!info.editable){await page.mouse.click(x,y,{delay:35});await page.waitForTimeout(90);}
-    res.json({ok:true,session:s.id,...info});
+    const pageHttps=String(page.url()||'').startsWith('https://');
+    const proxyHttps=!!req.secure;
+    res.set('Cache-Control','no-store');
+    res.json({ok:true,session:s.id,...info,pageHttps,proxyHttps,secureLogin:pageHttps&&proxyHttps});
   }catch(e){res.status(500).json({ok:false,error:String(e)});}
 });
 
 app.post('/input-set-frame', requireKey, async(req,res)=>{
   try{
     const s=await session(req);const page=s.page;const text=String(req.body?.text??'');const submit=req.body?.submit!==false;
-    const ok=await page.evaluate((text)=>{const el=document.activeElement;if(!el)return false;const tag=(el.tagName||'').toLowerCase();if(el.isContentEditable){el.innerText=text;el.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:text}));return true;}if(tag==='input'||tag==='textarea'){const proto=tag==='input'?HTMLInputElement.prototype:HTMLTextAreaElement.prototype;const setter=Object.getOwnPropertyDescriptor(proto,'value')?.set;if(setter)setter.call(el,text);else el.value=text;el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));return true;}return false;},text);
-    if(!ok)return res.status(400).json({ok:false,error:'Focused element is not editable'});
-    if(submit){await page.keyboard.press('Enter').catch(()=>{});await page.waitForTimeout(350).catch(()=>{});}else await page.waitForTimeout(80).catch(()=>{});
-    const png=await page.screenshot({type:'png'});res.set('X-VitaSearch-Session',s.id);res.type('png').send(png);
-  }catch(e){res.status(500).json({ok:false,error:String(e)});}
+    let field=page.locator('[data-vitasearch-focus="1"]').first();
+    let count=await field.count().catch(()=>0);
+    if(!count){
+      field=page.locator('input:focus, textarea:focus, [contenteditable="true"]:focus').first();
+      count=await field.count().catch(()=>0);
+    }
+    if(!count)return res.status(400).json({ok:false,error:'Focused element is not editable'});
+    const security=await field.evaluate(el=>{const type=String(el.type||'').toLowerCase();const autocomplete=String(el.getAttribute('autocomplete')||'').toLowerCase();const name=String(el.getAttribute('name')||'').toLowerCase();const id=String(el.id||'').toLowerCase();return {sensitive:type==='password'||type==='email'||/password|passwd|passcode|username|email|login/.test(`${autocomplete} ${name} ${id}`),password:type==='password'};}).catch(()=>({sensitive:false,password:false}));
+    const pageHttps=String(page.url()||'').startsWith('https://');
+    if(security.sensitive && (!pageHttps || !req.secure)){
+      console.warn('[secure-login] blocked credential entry: HTTPS required on both website and Vita-to-proxy connection');
+      return res.status(403).json({ok:false,error:'secure_login_requires_https',pageHttps,proxyHttps:!!req.secure});
+    }
+    await field.fill(text).catch(async()=>{
+      await field.evaluate((el,value)=>{
+        const tag=(el.tagName||'').toLowerCase();
+        if(el.isContentEditable){el.textContent=value;el.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:value}));return;}
+        const proto=tag==='input'?HTMLInputElement.prototype:HTMLTextAreaElement.prototype;
+        const setter=Object.getOwnPropertyDescriptor(proto,'value')?.set;
+        if(setter)setter.call(el,value);else el.value=value;
+        el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));
+      },text);
+    });
+    if(submit){
+      await field.press('Enter').catch(async()=>{await page.keyboard.press('Enter').catch(()=>{});});
+      await page.waitForTimeout(550).catch(()=>{});
+    }else await page.waitForTimeout(80).catch(()=>{});
+    const png=await page.screenshot({type:'png'});res.set('X-VitaSearch-Session',s.id);res.set('Cache-Control','no-store');res.type('png').send(png);
+  }catch(e){console.warn('[input-set-frame] failed:',String(e?.message||e));res.status(500).json({ok:false,error:String(e?.message||e)});}
 });
 
 app.post('/click', requireKey, async (req, res) => {
