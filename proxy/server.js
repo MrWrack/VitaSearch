@@ -28,6 +28,7 @@ const ALLOW_PRIVATE_TARGETS = /^(1|true|yes)$/i.test(String(process.env.ALLOW_PR
 const MAX_SESSIONS = Math.max(1, Math.min(12, Number(process.env.MAX_SESSIONS || 6)));
 const sessions = new Map();
 const MAX_TABS_PER_SESSION = 6;
+const ACCOUNT_LOGIN_WINDOW = /^(1|true|yes)$/i.test(String(process.env.VITASEARCH_ACCOUNT_LOGIN_WINDOW || '0'));
 
 const oauthStates = new Map();
 const searchHistory = [];
@@ -57,7 +58,9 @@ if (!API_KEY && !['127.0.0.1','::1','localhost'].includes(HOST)) {
 }
 if (API_KEY && API_KEY.length < 16) throw new Error('VITASEARCH_API_KEY must be at least 16 characters.');
 
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: !ACCOUNT_LOGIN_WINDOW });
+console.log(`[browser] account login window: ${ACCOUNT_LOGIN_WINDOW ? 'VISIBLE' : 'HEADLESS'}`);
+if (ACCOUNT_LOGIN_WINDOW) console.log('[browser] Visible Chromium is enabled for account sign-in. Complete provider verification on the PC window if the site blocks embedded/automated sign-in.');
 
 function loadToken() {
   try { return JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf8')); }
