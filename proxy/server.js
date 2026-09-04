@@ -631,10 +631,26 @@ app.get('/spotify/callback', async(req,res)=>{
 app.get('/spotify/api/state', requireKey, async(_req,res)=>{try{const p=await spotifyApi('/me/player');res.json({ok:true,player:p});}catch(e){res.status(401).json({ok:false,error:String(e)});}});
 app.get('/spotify/api/devices', requireKey, async(_req,res)=>{try{res.json({ok:true,...await spotifyApi('/me/player/devices')});}catch(e){res.status(401).json({ok:false,error:String(e)});}});
 app.get('/spotify/api/search', requireKey, async(req,res)=>{try{const q=encodeURIComponent(String(req.query.q||''));const d=await spotifyApi(`/search?q=${q}&type=track&limit=8`);res.json({ok:true,items:d?.tracks?.items||[]});}catch(e){res.status(400).json({ok:false,error:String(e)});}});
-app.post('/spotify/api/play', requireKey, async(req,res)=>{try{const body=req.body?.uri?JSON.stringify({uris:[String(req.body.uri)]}):undefined;await spotifyApi('/me/player/play',{method:'PUT',body});res.json({ok:true});}catch(e){res.status(400).json({ok:false,error:String(e)});}});
-app.post('/spotify/api/pause', requireKey, async(_req,res)=>{try{await spotifyApi('/me/player/pause',{method:'PUT'});res.json({ok:true});}catch(e){res.status(400).json({ok:false,error:String(e)});}});
-app.post('/spotify/api/next', requireKey, async(_req,res)=>{try{await spotifyApi('/me/player/next',{method:'POST'});res.json({ok:true});}catch(e){res.status(400).json({ok:false,error:String(e)});}});
-app.post('/spotify/api/previous', requireKey, async(_req,res)=>{try{await spotifyApi('/me/player/previous',{method:'POST'});res.json({ok:true});}catch(e){res.status(400).json({ok:false,error:String(e)});}});
+async function spotifyPlaybackCommand(name, endpoint, options={}) {
+  let lastErr = null;
+  for (let attempt=0; attempt<2; attempt++) {
+    try {
+      await spotifyApi(endpoint, options);
+      console.log(`[spotify-control] ${name} ok${attempt ? ' after retry' : ''}`);
+      return;
+    } catch (e) {
+      lastErr = e;
+      console.warn(`[spotify-control] ${name} attempt ${attempt+1} failed:`, String(e?.message || e));
+      if (attempt === 0) await new Promise(r=>setTimeout(r,250));
+    }
+  }
+  throw lastErr || new Error(`${name} failed`);
+}
+app.post('/spotify/api/play', requireKey, async(req,res)=>{try{const body=req.body?.uri?JSON.stringify({uris:[String(req.body.uri)]}):undefined;await spotifyPlaybackCommand('play','/me/player/play',{method:'PUT',body});res.json({ok:true});}catch(e){res.status(400).json({ok:false,error:String(e)});}});
+app.post('/spotify/api/pause', requireKey, async(_req,res)=>{try{await spotifyPlaybackCommand('pause','/me/player/pause',{method:'PUT'});res.json({ok:true});}catch(e){res.status(400).json({ok:false,error:String(e)});}});
+app.post('/spotify/api/toggle', requireKey, async(_req,res)=>{try{const p=await spotifyApi('/me/player');const playing=!!p?.is_playing;await spotifyPlaybackCommand(playing?'pause':'play',playing?'/me/player/pause':'/me/player/play',{method:'PUT'});res.json({ok:true,playing:!playing});}catch(e){res.status(400).json({ok:false,error:String(e)});}});
+app.post('/spotify/api/next', requireKey, async(_req,res)=>{try{await spotifyPlaybackCommand('next','/me/player/next',{method:'POST'});res.json({ok:true});}catch(e){res.status(400).json({ok:false,error:String(e)});}});
+app.post('/spotify/api/previous', requireKey, async(_req,res)=>{try{await spotifyPlaybackCommand('previous','/me/player/previous',{method:'POST'});res.json({ok:true});}catch(e){res.status(400).json({ok:false,error:String(e)});}});
 app.post('/spotify/api/transfer', requireKey, async(req,res)=>{try{const deviceId=String(req.body?.device_id||'');if(!deviceId)throw new Error('Missing device_id');await spotifyApi('/me/player',{method:'PUT',body:JSON.stringify({device_ids:[deviceId],play:req.body?.play!==false})});res.json({ok:true});}catch(e){res.status(400).json({ok:false,error:String(e)});}});
 app.post('/spotify/api/volume', requireKey, async(req,res)=>{try{const volume=Math.max(0,Math.min(100,Number(req.body?.volume)));if(!Number.isFinite(volume))throw new Error('Invalid volume');await spotifyApi(`/me/player/volume?volume_percent=${Math.round(volume)}`,{method:'PUT'});res.json({ok:true,volume:Math.round(volume)});}catch(e){res.status(400).json({ok:false,error:String(e)});}});
 app.post('/spotify/api/seek', requireKey, async(req,res)=>{try{const position=Math.max(0,Math.round(Number(req.body?.position_ms)||0));await spotifyApi(`/me/player/seek?position_ms=${position}`,{method:'PUT'});res.json({ok:true,position_ms:position});}catch(e){res.status(400).json({ok:false,error:String(e)});}});
